@@ -75,6 +75,8 @@ const faceVisButtons = document.querySelectorAll("#faceVisSegmented .seg");
 const metricButtons = document.querySelectorAll("#metricSegmented .seg");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomVal = document.getElementById("zoomVal");
+const opacitySlider = document.getElementById("opacitySlider");
+const opacityVal = document.getElementById("opacityVal");
 
 function setPlaying(playing) {
   state.playing = playing;
@@ -144,6 +146,10 @@ metricButtons.forEach((btn) => {
 zoomSlider.addEventListener("input", () => {
   state.zoom = parseFloat(zoomSlider.value) / 100;
   zoomVal.textContent = zoomSlider.value + "%";
+});
+opacitySlider.addEventListener("input", () => {
+  state.sphereOpacity = parseFloat(opacitySlider.value) / 100;
+  opacityVal.textContent = opacitySlider.value + "%";
 });
 playBtn.addEventListener("click", () => {
   if (state.p === Infinity) return;
@@ -317,6 +323,7 @@ state.p = P_VALUES[parseInt(pSlider.value, 10)];
 state.seed = parseInt(seedInput.value, 10);
 state.speed = parseFloat(speedSlider.value);
 state.zoom = parseFloat(zoomSlider.value) / 100;
+state.sphereOpacity = parseFloat(opacitySlider.value) / 100;
 updatePInfinityUI();
 resizeCanvas();
 resizeEnergyChart();

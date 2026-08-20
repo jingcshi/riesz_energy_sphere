@@ -120,7 +120,7 @@ function drawHoverHighlight(projectedPoints, edgePaths, facePaths) {
   if (t.type === "vertex") {
     const pt = projectedPoints.find((p) => p.idx === t.idx);
     if (!pt) return;
-    const depth = (pt.z + 1) / 2;
+    const depth = depthWithOpacity((pt.z + 1) / 2);
     const radius = 3.5 + depth * 3.5;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, radius * 1.6, 0, 2 * Math.PI);
@@ -286,7 +286,7 @@ function draw() {
       // Depth-fade toward the background, same idea as the vertex tension
       // colouring: a rear face reads as "further away" rather than
       // competing on equal footing with whatever's in front of it.
-      const depth = Math.max(0, Math.min(1, (avgZ + 1) / 2));
+      const depth = depthWithOpacity(Math.max(0, Math.min(1, (avgZ + 1) / 2)));
       const fadeAlpha = 0.35 + depth * 0.65;
       ctx.globalAlpha = fadeAlpha;
       ctx.fillStyle = faceFillColor(sides);
@@ -345,7 +345,7 @@ function draw() {
   projected.sort((a, b) => a.z - b.z);
 
   for (const pt of projected) {
-    const depth = (pt.z + 1) / 2; // 0 (back) .. 1 (front)
+    const depth = depthWithOpacity((pt.z + 1) / 2); // 0 (back) .. 1 (front)
     const radius = 3.5 + depth * 3.5;
 
     const bg = hslToRgb(212, 0.9, 0.45 + depth * 0.45); // existing depth-based blue

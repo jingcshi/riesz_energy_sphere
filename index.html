@@ -74,6 +74,12 @@
       </div>
     </div>
 
+    <div class="control" title="How much rear vertices/edges/faces fade and shrink relative to front ones - transparent shows everything equally, opaque favours a clearer front view">
+      <label>Sphere opacity<span class="val" id="opacityVal">100%</span></label>
+      <input type="range" id="opacitySlider" min="0" max="100" step="5" value="100">
+      <div class="ticks"><span>Transparent</span><span>Opaque</span></div>
+    </div>
+
     <div class="row">
       <button class="primary state-play" id="playBtn">Play</button>
       <button class="reset" id="resetBtn">Reset</button>

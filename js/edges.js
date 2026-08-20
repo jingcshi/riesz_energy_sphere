@@ -109,7 +109,7 @@ function computeEdges() {
 }
 
 function depthAlpha(z) {
-  const depth = (z + 1) / 2; // 0 (back) .. 1 (front)
+  const depth = depthWithOpacity((z + 1) / 2); // 0 (back) .. 1 (front)
   return 0.06 + depth * 0.5;
 }
 

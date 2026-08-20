@@ -46,6 +46,21 @@ function project(pt, cx, cy, scale) {
   return { x: cx + x * scale * f, y: cy - y * scale * f, z, f };
 }
 
+// Information/clarity trade-off ("sphere opacity"): rather than rewriting
+// every depth-fade/blend formula in render.js/edges.js, this remaps the raw
+// depth (0=back..1=front) each of them already takes as input, and every
+// downstream alpha/colour/radius formula keeps working unmodified. At
+// opacity=1 it's the identity (today's fixed look: full front-to-back
+// fade/blend). At opacity=0 it always returns 1 ("as if front"), so every
+// element renders at full clarity/size regardless of true depth - nothing
+// is lost, but front/back layering becomes illegible. Intermediate values
+// interpolate between "opaque sphere blocking the far side" and "fully
+// transparent, see straight through".
+function depthWithOpacity(rawDepth) {
+  const op = state.sphereOpacity;
+  return 1 - op * (1 - rawDepth);
+}
+
 // Spherical linear interpolation between two unit vectors, tracing the great
 // circle arc between them. `omega` is the angle between u and v, `sinOmega`
 // its sine (passed in so callers computing several waypoints don't redo it).

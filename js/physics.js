@@ -15,6 +15,7 @@ const state = {
   maxForce: 0,
   viewMatrix: matMultiply(rotationY(0.5), rotationX(-0.3)), // initial orientation, matches old rotX=-0.3/rotY=0.5
   zoom: 1.0, // origin-centered scale multiplier, no translation
+  sphereOpacity: 1.0, // 0 (fully transparent - front/back equally clear) .. 1 (today's full depth fade - see geometry.js's depthWithOpacity)
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
   _energyHistory: [],
   highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
