@@ -81,6 +81,40 @@ js/chart.js        energy / max-force vs. step line charts
 js/main.js         UI wiring, main animation loop
 ```
 
+## Known optimal configurations for small N
+
+For most of the pairwise potentials this simulator covers — Coulomb (`p=1`),
+general Riesz `p>0`, and the logarithmic/Fekete limit `p=0` — the globally
+optimal configuration for small `N` is one of the following. Try seeding a
+run at each `N` below (a few random seeds if it doesn't land on the first
+try) and let it play to convergence to see it emerge:
+
+| N | Configuration | Symmetry |
+|---|---|---|
+| 1 | trivial (no pairwise energy) | — |
+| 2 | antipodal pair | D∞h |
+| 3 | equilateral triangle on a great circle | D3h |
+| 4 | regular tetrahedron | Td |
+| 5 | triangular bipyramid | D3h |
+| 6 | regular octahedron | Oh |
+| 7 | pentagonal bipyramid | D5h |
+| 8 | square antiprism (**not** the cube — the cube is only a local minimum) | D4d |
+| 9 | tricapped trigonal prism | D3h |
+| 10 | gyroelongated square bipyramid | D4d |
+| 11 | irregular — no simple named polyhedron | C2v |
+| 12 | regular icosahedron | Ih |
+
+Only three of these are backed by a proof that holds for *every* reasonable
+potential simultaneously: Cohn & Kumar (2007) showed the tetrahedron (N=4),
+octahedron (N=6), and icosahedron (N=12) are **universally optimal** — minimal
+for every completely monotonic function of squared distance, which covers
+every Riesz exponent and the log-energy limit at once. The rest of the table
+is the configuration most commonly reported for the classical Thomson
+(`p=1`) and Fekete (`p=0`) problems specifically; it isn't proven to be
+exponent-independent, so it's conceivable (if unusual) for some other `p` to
+prefer a different local optimum at those `N`. That makes this simulator a
+reasonable way to probe the question directly by sweeping `p` live.
+
 ## Known limitations
 
 See `TODO.md` for two on-hold ideas (a proper spherical Delaunay
