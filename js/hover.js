@@ -70,20 +70,24 @@ function updateHover(projectedPoints, edgePaths) {
 
   if (best.type === "vertex") {
     const i = best.idx;
+    let degree = 0;
+    for (const ep of edgePaths) if (ep.i === i || ep.j === i) degree++;
     const mag = state._forces ? Math.hypot(...state._forces[i]) : NaN;
     const r0 = state._nearest ? state._nearest[i] : NaN;
     const energy = state._pointEnergy ? state._pointEnergy[i] : NaN;
     hoverTooltip.innerHTML = `
       <div class="hover-title">Vertex ${i}</div>
+      <div class="hover-row"><span>Degree</span><span>${degree}</span></div>
       <div class="hover-row"><span>Net force</span><span>${mag.toExponential(3)}</span></div>
       <div class="hover-row"><span>r&#8320; (nearest)</span><span>${fmt(r0)}</span></div>
       <div class="hover-row"><span>Potential energy</span><span>${fmt(energy)}</span></div>`;
   } else {
     const { i, j } = best;
     const u = state.points[i], v = state.points[j];
+    const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+    const arcAngleDeg = Math.acos(dot) * 180 / Math.PI;
     let length;
     if (state.edgeStyle === "arcs") {
-      const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
       length = Math.acos(dot);
     } else {
       const dx = u[0] - v[0], dy = u[1] - v[1], dz = u[2] - v[2];
@@ -93,6 +97,7 @@ function updateHover(projectedPoints, edgePaths) {
     hoverTooltip.innerHTML = `
       <div class="hover-title">Edge ${i}&ndash;${j}</div>
       <div class="hover-row"><span>Length</span><span>${fmt(length)}</span></div>
+      <div class="hover-row"><span>Arc angle</span><span>${fmt(arcAngleDeg, 2)}&deg;</span></div>
       <div class="hover-row"><span>Force</span><span>${fmt(force, 5)}</span></div>`;
   }
 

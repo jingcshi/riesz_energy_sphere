@@ -3,9 +3,9 @@
 ## On hold
 
 - **Large-N support (raise the N slider well past 100) via convex hull +
-  Barnes-Hut.** No longer purely deprioritized — per
-  `~/Downloads/spherical_point_configurations_codex_handoff.pdf`, the
-  large-N regime is genuinely interesting (icosadeltahedral meshes at
+  Barnes-Hut.** No longer purely deprioritized — per a reference survey on
+  spherical point configurations, the large-N regime is genuinely
+  interesting (icosadeltahedral meshes at
   `N = 10T+2` for `T = h²+hk+k²`, i.e. 12, 32, 42, 72, 92, 122, 132, 162, ...;
   and a literature-reported 5-7 disclination "scarring" crossover around
   `N ~ 500-1000` where exact icosadeltahedral symmetry stops being optimal).
@@ -62,7 +62,7 @@
     Tammes solvers in the literature actually work, but a bigger structural
     departure — probably its own step function rather than a branch inside
     `stepPhysics()`.
-  - Validate against the reference PDF's Tammes table (N=1-14, 24 rigorously
+  - Validate against a reference Tammes table (N=1-14, 24 rigorously
     known; e.g. N=5 -> 90°, N=7 -> ~77.87°, N=8 -> ~74.86° square antiprism)
     before trusting any implementation.
 
