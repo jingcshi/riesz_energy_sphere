@@ -86,7 +86,7 @@
     <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
     <div class="stat">Energy <span class="v" id="energyVal">&mdash;</span></div>
     <div class="stat">Max force <span class="v" id="forceVal">&mdash;</span></div>
-    <div class="chart-title chart-title-spaced">Vertices by degree &mdash; click to toggle highlighting</div>
+    <div class="chart-title chart-title-spaced">Vertices by degree &mdash; click to cycle highlight / hide</div>
     <div id="degreeHistogram" class="degree-histogram"></div>
 
     <div class="section-title section-title-spaced">Graphs</div>
@@ -177,10 +177,15 @@
           edge shows its numeric details.
         </p>
         <p>
-          Clicking a "Degree x" row in the statistics panel's histogram rings every
-          vertex of that degree in yellow &mdash; useful for spotting the mesoscopic
-          "scars" (isolated 5- or 7-fold defects among an otherwise 6-fold lattice)
-          that larger, relaxed configurations tend to settle into.
+          Clicking a "Degree x" row in the statistics panel's histogram cycles
+          it through three states: normal, highlighted (rings every vertex of
+          that degree in yellow), and hidden (removes them from view entirely,
+          display-only &mdash; the simulation underneath is unaffected).
+          Hiding everything but a defect degree (e.g. the 12 isolated 5-fold
+          points on a large, otherwise 6-fold relaxed mesh) also reveals a
+          second, dashed set of edges: the triangulation of just the points
+          still visible, so their own global arrangement becomes visible
+          instead of a lattice with holes in it.
         </p>
       </div>
     </div>

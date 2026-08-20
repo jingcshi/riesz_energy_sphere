@@ -220,6 +220,10 @@ button.reset:hover {
   color: #ffd60a;
   font-weight: 600;
 }
+.degree-toggle.state-hidden {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
 code {
   background: #0d1117;
   padding: 1px 4px;

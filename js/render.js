@@ -94,21 +94,58 @@ function draw() {
 
   // Always compute the neighbour graph (cheap at N<=100) so state._nearest
   // (r0 per vertex) is available for the hover panel even when edges aren't
-  // drawn; only render it when the edge style calls for it.
+  // drawn; only render it when the edge style calls for it. This is always
+  // the *true* graph over every point, hidden or not - hiding is display-
+  // only and must never feed back into the physics or into r0/degree.
   const edgeList = computeEdges();
   state._edgeList = edgeList; // exposed for the degree-histogram stat
+
+  const n = state.points.length;
+  const isHidden = new Array(n).fill(false);
+  if (state.hiddenDegrees.size > 0 && state._degree) {
+    for (let i = 0; i < n; i++) isHidden[i] = state.hiddenDegrees.has(state._degree[i]);
+  }
+
   let edgePaths = [];
   if (state.edgeStyle !== "none") {
-    edgePaths = computeEdgeScreenPaths(edgeList, cx, cy, scale);
+    const trueEdgeKeys = new Set();
+    const edgeDescs = [];
+    for (const [a, b] of edgeList) {
+      if (isHidden[a] || isHidden[b]) continue;
+      trueEdgeKeys.add(a + "," + b);
+      edgeDescs.push({ i: a, j: b, pseudo: false });
+    }
+    // Pseudo edges: rerun Delaunay+EDGE_C on just the surviving (visible)
+    // points, so hiding away everything but e.g. the pentagonal defects
+    // reveals *their own* triangulation - a fresh local r0 among just those
+    // points - rather than only ever showing the true graph with some
+    // edges erased. Only kept when they don't already coincide with a true
+    // edge that's already being drawn solid.
+    if (state.hiddenDegrees.size > 0) {
+      const visibleIdx = [];
+      for (let i = 0; i < n; i++) if (!isHidden[i]) visibleIdx.push(i);
+      if (visibleIdx.length >= 2) {
+        const subPts = visibleIdx.map((i) => state.points[i]);
+        const { edges: subEdges } = computeEdgesForPoints(subPts);
+        for (const [sa, sb] of subEdges) {
+          const a = visibleIdx[sa], b = visibleIdx[sb];
+          const lo = Math.min(a, b), hi = Math.max(a, b);
+          if (!trueEdgeKeys.has(`${lo},${hi}`)) edgeDescs.push({ i: lo, j: hi, pseudo: true });
+        }
+      }
+    }
+    edgePaths = computeEdgeScreenPaths(edgeDescs, cx, cy, scale);
     drawEdges(ctx, edgePaths);
   }
 
-  // points, depth sorted
+  // points, depth sorted - hidden vertices are display-only excluded, both
+  // from drawing and from hover eligibility (via the `projected` list
+  // updateHover receives below).
   const projected = state.points.map((p3, idx) => {
     const rp = rotate(p3, state.viewMatrix);
     const pr = project(rp, cx, cy, scale);
     return { ...pr, idx };
-  });
+  }).filter((pt) => !isHidden[pt.idx]);
   projected.sort((a, b) => a.z - b.z);
 
   for (const pt of projected) {

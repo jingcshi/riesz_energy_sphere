@@ -134,8 +134,10 @@ infoTabButtons.forEach((btn) => {
 // spotting defects (a lone degree-7 vertex among mostly-6 is a disclination;
 // a lone low-degree one is comparatively unremarkable/expected near a
 // 5-fold symmetric arrangement). Each row's "Degree x" label doubles as a
-// toggle button (delegated click handler below) that rings every vertex of
-// that degree on the canvas, for spotting mesoscopic defects/scars.
+// 3-state toggle (delegated click handler below) cycling
+// normal -> highlighted -> hidden -> normal, for spotting mesoscopic
+// defects/scars (highlight) or isolating just them to see their own global
+// arrangement (hide everything else).
 //
 // Only rebuilds the DOM when the rendered rows would actually differ - this
 // was called every animation frame (~60/s), unconditionally replacing the
@@ -150,13 +152,16 @@ function updateDegreeHistogram() {
   for (const d of degree) counts.set(d, (counts.get(d) || 0) + 1);
   const rows = Array.from(counts.entries()).sort((a, b) => b[0] - a[0]);
   const sig = rows.map(([d, c]) => `${d}:${c}`).join(",") + "|" +
-    Array.from(state.highlightedDegrees).sort().join(",");
+    Array.from(state.highlightedDegrees).sort().join(",") + "|" +
+    Array.from(state.hiddenDegrees).sort().join(",");
   if (sig === _degreeHistogramSig) return;
   _degreeHistogramSig = sig;
   degreeHistogramEl.innerHTML = rows
     .map(([deg, count]) => {
-      const active = state.highlightedDegrees.has(deg);
-      return `<div class="stat"><span class="degree-toggle${active ? " active" : ""}" data-degree="${deg}">Degree ${deg}</span><span class="v">${count}</span></div>`;
+      const stateClass = state.highlightedDegrees.has(deg) ? " active"
+        : state.hiddenDegrees.has(deg) ? " state-hidden"
+        : "";
+      return `<div class="stat"><span class="degree-toggle${stateClass}" data-degree="${deg}">Degree ${deg}</span><span class="v">${count}</span></div>`;
     })
     .join("");
 }
@@ -169,9 +174,15 @@ degreeHistogramEl.addEventListener("mousedown", (e) => {
   const target = e.target.closest("[data-degree]");
   if (!target) return;
   const deg = parseInt(target.dataset.degree, 10);
-  if (state.highlightedDegrees.has(deg)) state.highlightedDegrees.delete(deg);
-  else state.highlightedDegrees.add(deg);
-  _degreeHistogramSig = null; // force the next frame to re-render with the new active state
+  if (state.highlightedDegrees.has(deg)) {
+    state.highlightedDegrees.delete(deg);
+    state.hiddenDegrees.add(deg);
+  } else if (state.hiddenDegrees.has(deg)) {
+    state.hiddenDegrees.delete(deg);
+  } else {
+    state.highlightedDegrees.add(deg);
+  }
+  _degreeHistogramSig = null; // force the next frame to re-render with the new state
 });
 
 // ---------- main loop ----------

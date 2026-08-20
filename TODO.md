@@ -159,3 +159,19 @@
   "Segoe UI", Roboto, Helvetica, Arial, sans-serif`.
 - Bumped the degree-highlight ring from 1.2x to 1.25x the vertex's display
   radius, per visual testing.
+- Added a third vertex state, "hidden" (display-only - never touches the
+  simulation), joining "highlighted" in a 3-way cycle on each degree
+  histogram row: normal -> highlighted -> hidden -> normal. Hiding
+  interacts with edge rendering rather than just erasing edges that touch
+  a hidden vertex: `computeEdgesForPoints()` (the Delaunay+EDGE_C core,
+  factored out of `computeEdges()` for this) reruns on just the currently-
+  visible points, so isolating e.g. the 12 pentagonal defects on a large
+  relaxed mesh reveals *their own* triangulation (a locally-recomputed r0
+  among just those 12 points) instead of a lattice full of holes. These
+  "pseudo" edges are only kept where they don't already coincide with a
+  true edge, rendered dashed and slightly dimmer, still support hover
+  (length, arc angle) but never a Force row, since they don't correspond to
+  an actual interacting pair. Also fixed a latent bug this surfaced: the
+  vertex hover panel's Degree readout recounted `edgePaths` incident to the
+  hovered vertex, which would have double-counted once pseudo edges could
+  appear there - switched to reading `state._degree` directly instead.

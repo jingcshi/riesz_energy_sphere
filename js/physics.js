@@ -18,6 +18,7 @@ const state = {
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
   _energyHistory: [],
   highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
+  hiddenDegrees: new Set(),      // degree values currently hidden from rendering (display-only, doesn't touch the simulation)
 };
 
 // ---------- p slider domain ----------
