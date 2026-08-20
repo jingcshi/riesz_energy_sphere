@@ -1,18 +1,56 @@
 "use strict";
 
-// ---------- interaction: drag to rotate ----------
-let dragging = false, lastX = 0, lastY = 0;
-canvas.addEventListener("mousedown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-window.addEventListener("mouseup", () => dragging = false);
+// ---------- interaction: drag to rotate, with inertial spin ----------
+const ROTATE_K = 0.008;
+const DRAG_CLICK_THRESHOLD = 4; // px of total travel below which a mousedown/up counts as a plain click, not a drag
+let dragging = false, lastX = 0, lastY = 0, dragTravel = 0;
+// Exponentially-smoothed per-event pixel delta, used only to estimate a
+// stable release velocity - the literal last mousemove event before
+// mouseup is often a near-zero "settling" movement (mouse decelerating
+// before the button lifts), which would otherwise make the resulting spin
+// velocity wildly under-estimate how fast the user was actually dragging.
+let smoothDx = 0, smoothDy = 0;
+// Persistent (non-decaying) spin, in the same yaw/pitch-per-frame units
+// `tick()` feeds into rotationY/rotationX below - "persistent" is literal
+// here: nothing damps it over time, only a fresh drag (overwrite) or a
+// plain click (explicit stop) ever changes it, mirroring the frictionless
+// feel of the rest of the sim (no artificial energy loss).
+let spinYaw = 0, spinPitch = 0;
+
+canvas.addEventListener("mousedown", (e) => {
+  dragging = true;
+  dragTravel = 0;
+  smoothDx = 0; smoothDy = 0;
+  lastX = e.clientX; lastY = e.clientY;
+});
+window.addEventListener("mouseup", () => {
+  if (!dragging) return;
+  dragging = false;
+  if (dragTravel > DRAG_CLICK_THRESHOLD) {
+    // Real drag: overwrite whatever spin was already running with this
+    // drag's (smoothed) release velocity, damped so the spin feels calmer
+    // than a 1:1 continuation of the drag speed.
+    const SPIN_DAMPING = 0.1;
+    spinYaw = smoothDx * ROTATE_K * SPIN_DAMPING;
+    spinPitch = smoothDy * ROTATE_K * SPIN_DAMPING;
+  } else {
+    // Plain click (negligible travel): explicitly stop any existing spin,
+    // rather than leaving it running or replacing it with drag noise.
+    spinYaw = 0;
+    spinPitch = 0;
+  }
+});
 window.addEventListener("mousemove", (e) => {
   if (!dragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY;
   lastX = e.clientX; lastY = e.clientY;
+  dragTravel += Math.hypot(dx, dy);
+  smoothDx = smoothDx * 0.7 + dx * 0.3;
+  smoothDy = smoothDy * 0.7 + dy * 0.3;
   // Apply this drag's yaw/pitch in the *current* view frame (pre-multiply)
   // rather than accumulating into stored Euler angles - see geometry.js for
   // why that avoids the gimbal-lock "wall" the old rotX/rotY scheme hit.
-  const k = 0.008;
-  const delta = matMultiply(rotationY(dx * k), rotationX(dy * k));
+  const delta = matMultiply(rotationY(dx * ROTATE_K), rotationX(dy * ROTATE_K));
   state.viewMatrix = matMultiply(delta, state.viewMatrix);
 });
 
@@ -243,6 +281,12 @@ faceHistogramEl.addEventListener("mousedown", (e) => {
 const MAX_SUBSTEPS_PER_FRAME = 50;
 const CONVERGED_FORCE = 1e-4;
 function tick() {
+  // Inertial spin: only while the user isn't actively dragging (which
+  // drives the view directly via the mousemove handler above).
+  if (!dragging && (spinYaw !== 0 || spinPitch !== 0)) {
+    const delta = matMultiply(rotationY(spinYaw), rotationX(spinPitch));
+    state.viewMatrix = matMultiply(delta, state.viewMatrix);
+  }
   if (state.playing) {
     state._stepAccum += state.speed;
     let iters = 0;
