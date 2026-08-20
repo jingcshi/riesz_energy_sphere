@@ -58,7 +58,7 @@ function updateHover(projectedPoints, edgePaths) {
       const d = distToPath(mouseX, mouseY, ep.path);
       if (d < EDGE_HIT_R && d < bestD) {
         bestD = d;
-        best = { type: "edge", i: ep.i, j: ep.j, pseudo: ep.pseudo, x: (ep.pa.x + ep.pb.x) / 2, y: (ep.pa.y + ep.pb.y) / 2 };
+        best = { type: "edge", i: ep.i, j: ep.j, nonLocal: ep.nonLocal, x: (ep.pa.x + ep.pb.x) / 2, y: (ep.pa.y + ep.pb.y) / 2 };
       }
     }
   }
@@ -72,8 +72,9 @@ function updateHover(projectedPoints, edgePaths) {
     const i = best.idx;
     // Degree comes straight from state._degree (the true, full-point-set
     // graph), not by recounting edgePaths incident to i - edgePaths can
-    // include pseudo edges (see render.js) when other vertices are hidden,
-    // which would otherwise inflate this into a "visible-subset degree".
+    // include non-local edges (see render.js) when other vertices are
+    // hidden, which would otherwise inflate this into a "visible-subset
+    // degree".
     const degree = state._degree ? state._degree[i] : "\u2014";
     const mag = state._forces ? Math.hypot(...state._forces[i]) : NaN;
     const r0 = state._nearest ? state._nearest[i] : NaN;
@@ -85,7 +86,7 @@ function updateHover(projectedPoints, edgePaths) {
       <div class="hover-row"><span>r&#8320; (nearest)</span><span>${fmt(r0)}</span></div>
       <div class="hover-row"><span>Potential energy</span><span>${fmt(energy)}</span></div>`;
   } else {
-    const { i, j, pseudo } = best;
+    const { i, j, nonLocal } = best;
     const u = state.points[i], v = state.points[j];
     const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
     const arcAngleDeg = Math.acos(dot) * 180 / Math.PI;
@@ -96,17 +97,16 @@ function updateHover(projectedPoints, edgePaths) {
       const dx = u[0] - v[0], dy = u[1] - v[1], dz = u[2] - v[2];
       length = Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
-    // Pseudo edges (dashed - see render.js) only exist for this rendering
-    // pass over the currently-visible points; they're not part of the
-    // actual interaction graph, so there's no meaningful Force to report.
-    const forceRow = pseudo
-      ? ""
-      : `<div class="hover-row"><span>Force</span><span>${fmt(pairForceMagnitude(i, j), 5)}</span></div>`;
+    // Non-local edges (dashed - see render.js) are just as real a
+    // physically-interacting pair as any other; they're only excluded from
+    // the Delaunay triangulation over the currently-visible points, so
+    // Force is reported the same way as for any other edge.
+    const force = pairForceMagnitude(i, j);
     hoverTooltip.innerHTML = `
-      <div class="hover-title">Edge ${i}&ndash;${j}${pseudo ? " (pseudo)" : ""}</div>
+      <div class="hover-title">Edge ${i}&ndash;${j}${nonLocal ? " (non-local)" : ""}</div>
       <div class="hover-row"><span>Length</span><span>${fmt(length)}</span></div>
       <div class="hover-row"><span>Arc angle</span><span>${fmt(arcAngleDeg, 2)}&deg;</span></div>
-      ${forceRow}`;
+      <div class="hover-row"><span>Force</span><span>${fmt(force, 5)}</span></div>`;
   }
 
   hoverTooltip.classList.remove("hidden");

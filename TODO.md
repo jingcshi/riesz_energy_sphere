@@ -168,10 +168,11 @@
   visible points, so isolating e.g. the 12 pentagonal defects on a large
   relaxed mesh reveals *their own* triangulation (a locally-recomputed r0
   among just those 12 points) instead of a lattice full of holes. These
-  "pseudo" edges are only kept where they don't already coincide with a
-  true edge, rendered dashed and slightly dimmer, still support hover
-  (length, arc angle) but never a Force row, since they don't correspond to
-  an actual interacting pair. Also fixed a latent bug this surfaced: the
-  vertex hover panel's Degree readout recounted `edgePaths` incident to the
-  hovered vertex, which would have double-counted once pseudo edges could
-  appear there - switched to reading `state._degree` directly instead.
+  are rendered dashed and named "non-local" (not "pseudo") in the hover
+  panel and code, since a pair excluded from the Delaunay triangulation is
+  still a real, physically-interacting one under the Riesz/log potential -
+  Force is reported for them exactly like any other edge. Also fixed a
+  latent bug this surfaced: the vertex hover panel's Degree readout
+  recounted `edgePaths` incident to the hovered vertex, which would have
+  double-counted once these edges could appear there - switched to reading
+  `state._degree` directly instead.

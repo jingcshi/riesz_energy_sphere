@@ -113,14 +113,17 @@ function draw() {
     for (const [a, b] of edgeList) {
       if (isHidden[a] || isHidden[b]) continue;
       trueEdgeKeys.add(a + "," + b);
-      edgeDescs.push({ i: a, j: b, pseudo: false });
+      edgeDescs.push({ i: a, j: b, nonLocal: false });
     }
-    // Pseudo edges: rerun Delaunay+EDGE_C on just the surviving (visible)
+    // Non-local edges: rerun Delaunay+EDGE_C on just the surviving (visible)
     // points, so hiding away everything but e.g. the pentagonal defects
     // reveals *their own* triangulation - a fresh local r0 among just those
     // points - rather than only ever showing the true graph with some
-    // edges erased. Only kept when they don't already coincide with a true
-    // edge that's already being drawn solid.
+    // edges erased. These are real, physically-interacting pairs (the
+    // underlying Riesz/log potential has no notion of a triangulation) -
+    // "non-local" just means excluded from the visible subset's Delaunay
+    // graph, not that the interaction itself is any less real. Only kept
+    // when they don't already coincide with a true edge already drawn.
     if (state.hiddenDegrees.size > 0) {
       const visibleIdx = [];
       for (let i = 0; i < n; i++) if (!isHidden[i]) visibleIdx.push(i);
@@ -130,7 +133,7 @@ function draw() {
         for (const [sa, sb] of subEdges) {
           const a = visibleIdx[sa], b = visibleIdx[sb];
           const lo = Math.min(a, b), hi = Math.max(a, b);
-          if (!trueEdgeKeys.has(`${lo},${hi}`)) edgeDescs.push({ i: lo, j: hi, pseudo: true });
+          if (!trueEdgeKeys.has(`${lo},${hi}`)) edgeDescs.push({ i: lo, j: hi, nonLocal: true });
         }
       }
     }

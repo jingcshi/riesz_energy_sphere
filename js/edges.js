@@ -56,9 +56,9 @@ function allPairsNeighbours(pts) {
 
 // Core Delaunay(-on-sphere) + EDGE_C computation, factored out of computeEdges()
 // so it can also be run on an arbitrary *subset* of points - see the
-// "pseudo edges" use in render.js, which reruns this on just the currently
-// visible (non-hidden) points to reveal their own triangulation once the
-// rest have been hidden away.
+// "non-local edges" use in render.js, which reruns this on just the
+// currently visible (non-hidden) points to reveal their own triangulation
+// once the rest have been hidden away.
 function computeEdgesForPoints(pts) {
   const n = pts.length;
   if (n < 2) return { edges: [], degree: new Array(n).fill(0), nearest: new Array(n).fill(Infinity) };
@@ -119,16 +119,16 @@ const ARC_SEGMENTS = 14;
 // "lines" style, ARC_SEGMENTS+1 for "arcs"). Shared by drawEdges (so the
 // rendered path and the hover hit-test path can never drift apart) and by
 // hover.js for accurate arc hit-testing. `edges` is an array of either
-// [i, j] pairs or {i, j, pseudo} descriptors - pseudo (see render.js) marks
-// an edge that only exists in the reduced "visible points only"
-// triangulation, not the true underlying one, and is carried through so it
-// can be drawn dashed and denied a Force readout on hover.
+// [i, j] pairs or {i, j, nonLocal} descriptors - nonLocal (see render.js)
+// marks a real, physically-interacting pair that just isn't part of the
+// Delaunay triangulation over the currently-visible points, carried through
+// so it can be drawn dashed to distinguish it from a "local" hull edge.
 function computeEdgeScreenPaths(edges, cx, cy, scale) {
   const paths = [];
   for (const e of edges) {
     const i = Array.isArray(e) ? e[0] : e.i;
     const j = Array.isArray(e) ? e[1] : e.j;
-    const pseudo = Array.isArray(e) ? false : !!e.pseudo;
+    const nonLocal = Array.isArray(e) ? false : !!e.nonLocal;
     const u = state.points[i], v = state.points[j];
     const uRot = rotate(u, state.viewMatrix);
     const vRot = rotate(v, state.viewMatrix);
@@ -148,7 +148,7 @@ function computeEdgeScreenPaths(edges, cx, cy, scale) {
     } else {
       path = [pa, pb];
     }
-    paths.push({ i, j, pa, pb, path, pseudo });
+    paths.push({ i, j, pa, pb, path, nonLocal });
   }
   return paths;
 }
@@ -156,15 +156,17 @@ function computeEdgeScreenPaths(edges, cx, cy, scale) {
 function drawEdges(ctx, edgePaths) {
   if (!edgePaths.length) return;
   ctx.lineWidth = 2.0;
-  for (const { pa, pb, path, pseudo } of edgePaths) {
+  for (const { pa, pb, path, nonLocal } of edgePaths) {
     // a single linear gradient between the endpoints approximates the
     // front-to-back fade even along a curved (arc) path
     const gradient = ctx.createLinearGradient(pa.x, pa.y, pb.x, pb.y);
-    const fade = pseudo ? 0.7 : 1; // pseudo edges read as dimmer as well as dashed
-    gradient.addColorStop(0, `rgba(88,166,255,${depthAlpha(pa.z) * fade})`);
-    gradient.addColorStop(1, `rgba(88,166,255,${depthAlpha(pb.z) * fade})`);
+    gradient.addColorStop(0, `rgba(88,166,255,${depthAlpha(pa.z)})`);
+    gradient.addColorStop(1, `rgba(88,166,255,${depthAlpha(pb.z)})`);
     ctx.strokeStyle = gradient;
-    ctx.setLineDash(pseudo ? [5, 4] : []);
+    // Dashed rather than dimmer: these are just as real/physically
+    // interacting a pair as any other edge, only excluded from the
+    // Delaunay triangulation over the currently-visible points.
+    ctx.setLineDash(nonLocal ? [5, 4] : []);
 
     ctx.beginPath();
     ctx.moveTo(path[0].x, path[0].y);
