@@ -55,7 +55,17 @@
     `p` it's still a diverging weighted sum dominated increasingly by the
     single closest pair, not a differentiable stand-in for "maximize the
     minimum pairwise distance" (the actual Tammes objective, a nested
-    min-max with no natural gradient).
+    min-max with no natural gradient). This is also why the *finite* end of
+    the slider is capped at 25 rather than climbing toward Infinity as
+    originally sketched: numerical stability in `computeEnergyAndForce()`
+    was already degrading by p~25 (maxForce stalling around 1e+3, not
+    converging), well before `Math.pow` actually overflows. Fixing that
+    for arbitrarily large finite p would need an arbitrary-precision numeric
+    library (e.g. `ExpantaNum.js`, though that's built for far larger
+    "googological" magnitudes than this actually needs) - not attempted, in
+    favour of capping the range where the existing integrator is reliable
+    and moving straight to the literal ∞ case as its own, differently-posed
+    problem instead.
   - Most promising path: replace the true `min` over pairs with a smooth
     **soft-min** (e.g. `-1/β · log Σ exp(-β·d_ij)`), which is differentiable
     everywhere and converges to the true Tammes objective as `β → ∞`. This
@@ -102,8 +112,13 @@
   dwarfing whatever `speed` scaled inside `dt`. Decoupled them - `dt` is now
   purely the numerically-adaptive quantity, and `speed` instead controls how
   many physics steps run per rendered frame.
-- Widened and re-scaled the p slider: 75 discrete values from 0 to 400 on a
+- Widened and re-scaled the p slider: 71 discrete values from 0 to 25 on a
   coarsening (pseudo-log) scale, fine enough near p~15 to resolve the known
   N=5 triangular-bipyramid -> square-pyramid phase transition
-  (Schwartz, `s* ~ 15.048`), plus a literal p=∞ position reserved for the
-  Tammes limit (see "On hold" above for why it isn't wired up yet).
+  (Schwartz, `s* ~ 15.048`; verified empirically at p=14.5 vs. p=15.0), plus
+  a literal p=∞ position reserved for the Tammes limit (see "On hold" above
+  for both why the range stops at 25 and why ∞ isn't wired up yet).
+- Capped the max-force chart's log-scale y-axis at 5 gridlines regardless of
+  how many decades a run spans, and gave the info modal's tab body a fixed
+  height so switching tabs no longer shifts the tabs/modal position on
+  screen (shorter tabs just leave blank space below their text instead).

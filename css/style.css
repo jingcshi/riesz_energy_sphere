@@ -285,6 +285,12 @@ code {
   color: white;
 }
 .modal-body {
+  /* Fixed rather than content-sized, so the tabs (and the modal itself,
+     which is centered in the overlay) don't shift position when switching
+     to a tab with more or less text - shorter tabs just leave whitespace
+     below their content instead. Tall enough for the longest tab; overflow
+     falls back to scrolling rather than growing the box. */
+  height: 280px;
   padding: 16px 18px;
   overflow-y: auto;
   font-size: 12px;

@@ -22,11 +22,17 @@ const state = {
 // ---------- p slider domain ----------
 // A pseudo-logarithmic scale: fine steps where the small-N phase transitions
 // live (Schwartz's N=5 transition is at p~15, well inside the 0.5-step
-// band), coarsening steadily as p grows, since large p behaves increasingly
-// like a smooth interpolation toward the p=Infinity (Tammes/max-min) limit
-// where the exact value stops mattering much. Built by index rather than by
-// repeated float addition to avoid step-accumulation drift (e.g. a naive
-// 0.1+0.1+0.1 landing on 1.7000000000000002).
+// band), coarsening as p grows. Capped at 25, not pushed further toward
+// p=Infinity as originally sketched: R_MIN=1e-4 floors the *magnitude* of a
+// near-collision, but `Math.pow(rEff, -(p+1))` still overflows double
+// precision once p is large enough (verified numerically stability starts
+// degrading around p~25, well before actual overflow - the landscape is
+// already ill-conditioned enough there that maxForce stalls around 1e+3
+// without converging). Rather than chase that with an arbitrary-precision
+// number library (massive overkill for a UI slider), the range simply stops
+// at the point where the existing integrator is still reliable. Built by
+// index rather than repeated float addition to avoid step-accumulation
+// drift (e.g. a naive 0.1+0.1+0.1 landing on 1.7000000000000002).
 function buildPValues() {
   const vals = [];
   const pushRange = (from, to, step) => {
@@ -37,16 +43,14 @@ function buildPValues() {
   pushRange(2.2, 6, 0.2);   // 20 values
   pushRange(6.5, 16, 0.5);  // 20 values (covers the N=5 TBP->square-pyramid transition at p~15.05)
   pushRange(17, 25, 1);     // 9 values
-  for (let v = 50; v <= 400; v *= 2) vals.push(v); // 4 values: 50, 100, 200, 400
   vals.push(Infinity);      // the Tammes (max-min distance) limit - see TODO.md
-  return vals; // 75 total
+  return vals; // 71 total
 }
 const P_VALUES = buildPValues();
 const P_DEFAULT_INDEX = P_VALUES.indexOf(1.0); // Coulomb/Newtonian law
 
 function formatP(p) {
   if (p === Infinity) return "\u221e";
-  if (p >= 50) return String(p);
   return p.toFixed(p <= 2 ? 2 : 1);
 }
 

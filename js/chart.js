@@ -50,7 +50,11 @@ function renderChart(canvas, ctx, hist, getValue, { color, log = false, floor = 
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       if (kHi >= kLo) {
-        for (let k = kLo; k <= kHi; k++) {
+        // Cap at 5 gridlines: a long-converging run can span a dozen+
+        // decades, and one label per decade would clutter the axis solid.
+        const MAX_TICKS = 5;
+        const decStep = Math.max(1, Math.ceil((kHi - kLo + 1) / MAX_TICKS));
+        for (let k = kLo; k <= kHi; k += decStep) {
           const y = yOf(Math.pow(10, k));
           ctx.strokeStyle = "rgba(139,148,158,0.15)";
           ctx.beginPath(); ctx.moveTo(CHART_PAD.l, y); ctx.lineTo(CHART_PAD.l + plotW, y); ctx.stroke();
