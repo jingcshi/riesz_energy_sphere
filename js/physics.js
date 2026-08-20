@@ -19,6 +19,8 @@ const state = {
   _energyHistory: [],
   highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
   hiddenDegrees: new Set(),      // degree values currently hidden from rendering (display-only, doesn't touch the simulation)
+  facesVisible: "hide",          // "hide" | "show" - master on/off for the whole face layer (left panel); "hide" by default so the generic triangle soup stays invisible until opted into
+  hiddenFaceSides: new Set(),    // side-counts explicitly hidden via the right panel's per-side-count toggle - independent of, and persists across, the master switch above
 };
 
 // ---------- p slider domain ----------

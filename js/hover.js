@@ -3,6 +3,13 @@
 // ---------- hover info panel (vertices & edges, paused only) ----------
 const hoverTooltip = document.getElementById("hoverTooltip");
 let mouseInCanvas = false, mouseX = 0, mouseY = 0;
+// Read by render.js's drawHoverHighlight() to ring/glow whatever's
+// currently hovered. Written at the end of updateHover() each frame, so
+// the on-canvas highlight lags the tooltip by exactly one animation frame
+// (draw() renders using last frame's target, then computes this frame's) -
+// imperceptible at 60fps with a stationary mouse, and far simpler than
+// threading hit-testing ahead of the render passes it depends on.
+let currentHoverTarget = null;
 
 canvas.addEventListener("mousemove", (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -14,32 +21,60 @@ canvas.addEventListener("mouseleave", () => { mouseInCanvas = false; });
 
 const VERTEX_HIT_R = 9; // px
 const EDGE_HIT_R = 6;   // px, distance to nearest point on the rendered path
+const FACE_BOUNDARY_HIT_R = 6; // px - lets a face's own boundary stroke resolve to that face
 
 function distToSegment(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
   const len2 = dx * dx + dy * dy;
   let t = len2 > 1e-9 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
   t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  return { d: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)), t };
 }
 
-function distToPath(px, py, path) {
-  let best = Infinity;
+// Distance to the path, plus the depth (z) *at the actual closest point*
+// rather than some coarse stand-in (e.g. an average of the edge's two
+// endpoints) - matters most for "arcs" style and/or long (often non-local)
+// edges, where a curving path can dip behind the sphere's horizon even
+// when both endpoints happen to read as front-facing, or vice versa.
+function closestPointOnPath(px, py, path) {
+  let bestD = Infinity, bestZ = 0;
   for (let k = 1; k < path.length; k++) {
-    best = Math.min(best, distToSegment(px, py, path[k - 1].x, path[k - 1].y, path[k].x, path[k].y));
+    const a = path[k - 1], b = path[k];
+    const { d, t } = distToSegment(px, py, a.x, a.y, b.x, b.y);
+    if (d < bestD) { bestD = d; bestZ = a.z + (b.z - a.z) * t; }
   }
-  return best;
+  return { d: bestD, z: bestZ };
 }
 
 function fmt(x, digits = 4) {
   return Number.isFinite(x) ? x.toFixed(digits) : "\u2014";
 }
 
+// Standard even-odd ray-casting point-in-polygon test against a projected
+// screen-space path (array of {x,y}).
+function pointInPolygon(px, py, path) {
+  let inside = false;
+  for (let k = 0, l = path.length - 1; k < path.length; l = k++) {
+    const xk = path[k].x, yk = path[k].y, xl = path[l].x, yl = path[l].y;
+    if ((yk > py) !== (yl > py) &&
+        px < (xl - xk) * (py - yk) / (yl - yk) + xk) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
 // Called once per frame from draw(), with the same projected points/edge
-// paths it just rendered, so the hit-test always matches what's on screen.
-function updateHover(projectedPoints, edgePaths) {
+// paths/face paths it just rendered, so the hit-test always matches what's
+// on screen. Strict priority front-vertex > front-edge > front-face -
+// checked in that order, each only among *front-hemisphere* candidates, so
+// a rear vertex/edge/face is never hoverable at all (matching how they
+// visually sit behind the near side of the sphere) and a nearer element
+// always wins over a farther one of the same or lower-priority type.
+function updateHover(projectedPoints, edgePaths, facePaths) {
   if (state.playing || !mouseInCanvas) {
     hoverTooltip.classList.add("hidden");
+    currentHoverTarget = null;
     return;
   }
 
@@ -54,21 +89,58 @@ function updateHover(projectedPoints, edgePaths) {
   }
   if (!best) {
     for (const ep of edgePaths) {
-      if ((ep.pa.z + ep.pb.z) / 2 < 0) continue; // front hemisphere only
-      const d = distToPath(mouseX, mouseY, ep.path);
+      const { d, z } = closestPointOnPath(mouseX, mouseY, ep.path);
+      if (z < 0) continue; // front hemisphere only, evaluated at the actual closest point
       if (d < EDGE_HIT_R && d < bestD) {
         bestD = d;
         best = { type: "edge", i: ep.i, j: ep.j, nonLocal: ep.nonLocal, x: (ep.pa.x + ep.pb.x) / 2, y: (ep.pa.y + ep.pb.y) / 2 };
       }
     }
   }
+  if (!best && facePaths) {
+    // Front faces can still overlap on screen once rear faces are drawn
+    // too (e.g. a square antiprism's near-eclipsed far square) - collect
+    // every front-facing match and keep the nearest (highest avgZ) rather
+    // than the first one encountered, which - since facePaths is sorted
+    // back-to-front for rendering - would otherwise silently pick the
+    // *farthest* of any overlapping matches.
+    let bestFaceZ = -Infinity;
+    for (const fp of facePaths) {
+      if (fp.avgZ < 0) continue; // front hemisphere only
+      if (fp.avgZ <= bestFaceZ) continue;
+      // A face's own boundary is drawn as its own stroke (see render.js's
+      // faceStrokeColor) - it isn't an edge and has no entry in edgePaths,
+      // so aiming right at that thin line, just outside the strict
+      // point-in-polygon test, used to match nothing at all. Falling back
+      // to "close enough to the boundary" closes that gap.
+      const closed = fp.path.length > 1 ? fp.path.concat([fp.path[0]]) : fp.path;
+      const onBoundary = closestPointOnPath(mouseX, mouseY, closed).d < FACE_BOUNDARY_HIT_R;
+      if (pointInPolygon(mouseX, mouseY, fp.path) || onBoundary) {
+        bestFaceZ = fp.avgZ;
+        const cx = fp.path.reduce((s, p) => s + p.x, 0) / fp.path.length;
+        const cy = fp.path.reduce((s, p) => s + p.y, 0) / fp.path.length;
+        best = { type: "face", sides: fp.sides, vertices: fp.vertices, area: fp.area, nonLocal: fp.nonLocal, x: cx, y: cy };
+      }
+    }
+  }
 
   if (!best) {
     hoverTooltip.classList.add("hidden");
+    currentHoverTarget = null;
     return;
   }
+  currentHoverTarget = best;
 
-  if (best.type === "vertex") {
+  if (best.type === "face") {
+    // Vertex count always equals side count for a polygon, so it's not
+    // worth its own row - the vertex list itself (in the face's boundary
+    // order) is the more informative title, standing in for both at once.
+    const { sides, vertices, area, nonLocal } = best;
+    hoverTooltip.innerHTML = `
+      <div class="hover-title">Face ${vertices.join("-")}${nonLocal ? " (non-local)" : ""}</div>
+      <div class="hover-row"><span>Sides</span><span>${sides}</span></div>
+      <div class="hover-row"><span>Area</span><span>${fmt(area)}</span></div>`;
+  } else if (best.type === "vertex") {
     const i = best.idx;
     // Degree comes straight from state._degree (the true, full-point-set
     // graph), not by recounting edgePaths incident to i - edgePaths can

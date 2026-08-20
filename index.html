@@ -66,6 +66,14 @@
       </div>
     </div>
 
+    <div class="control">
+      <label>Faces</label>
+      <div class="segmented" id="faceVisSegmented">
+        <button class="seg active" data-vis="hide">Hide</button>
+        <button class="seg" data-vis="show">Show</button>
+      </div>
+    </div>
+
     <div class="row">
       <button class="primary state-play" id="playBtn">Play</button>
       <button class="reset" id="resetBtn">Reset</button>
@@ -86,8 +94,13 @@
     <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
     <div class="stat">Energy <span class="v" id="energyVal">&mdash;</span></div>
     <div class="stat">Max force <span class="v" id="forceVal">&mdash;</span></div>
-    <div class="chart-title chart-title-spaced">Vertices by degree &mdash; click to cycle highlight / hide</div>
+
+    <div class="section-title section-title-spaced">Geometry</div>
+    <div class="chart-title">Vertices by degree &mdash; click to cycle highlight / hide</div>
     <div id="degreeHistogram" class="degree-histogram"></div>
+
+    <div class="chart-title chart-title-spaced">Faces by side count &mdash; click to show / hide</div>
+    <div id="faceHistogram" class="degree-histogram"></div>
 
     <div class="section-title section-title-spaced">Graphs</div>
     <div class="chart-title">Energy vs. step</div>
@@ -191,6 +204,37 @@
           visible points &mdash; so hovering one reports its force exactly
           like any other edge.
         </p>
+        <p>
+          Faces are a separate, purely visual layer: adjacent hull triangles
+          whose outward normals are nearly parallel (within ~1.8&deg;) are
+          merged into a single flat n-gon, named Triangle/Quadrilateral/
+          Pentagon/&hellip; up to Icosagon (20 sides) and "N-gon" beyond,
+          colour-coded consistently across the app. The left panel's Faces
+          Hide/Show control is the master switch for the whole layer
+          (hidden by default, so the generic triangle soup stays out of the
+          way until asked for); the statistics panel's "Faces by side
+          count" list is finer-grained, letting you dim out individual side
+          counts (e.g. hide triangles but keep pentagons) once the master
+          switch is on. That per-side-count choice persists independently
+          of the master switch, so toggling Hide/Show never forgets which
+          categories you'd already suppressed. In "Arcs" edge style, face
+          boundaries are drawn as great-circle arcs too, so a shown face
+          reads as a genuine tile on the sphere's surface rather than a
+          flat polytope facet; in "Lines"/"None" style they're drawn as
+          flat polygons. Early in a run, or for a generically asymmetric
+          configuration, adjacent triangles almost never share an exact
+          plane, so nothing merges &mdash; genuine flat faces (if the
+          configuration has any) only appear once the system has relaxed
+          close enough to a symmetric equilibrium.
+        </p>
+        <p>
+          Hiding vertices affects faces the same way it affects edges: a
+          face touching a hidden vertex disappears, and the merge is
+          rerun over just the remaining visible points, revealing dashed
+          "non-local" faces &mdash; a tiling of just the visible subset
+          that wouldn't exist while the rest of the mesh was still there to
+          subdivide it.
+        </p>
       </div>
     </div>
   </div>
@@ -201,6 +245,7 @@
 <script src="js/physics.js"></script>
 <script src="js/hull.js"></script>
 <script src="js/edges.js"></script>
+<script src="js/faces.js"></script>
 <script src="js/render.js"></script>
 <script src="js/hover.js"></script>
 <script src="js/chart.js"></script>

@@ -224,6 +224,26 @@ button.reset:hover {
   text-decoration: line-through;
   opacity: 0.55;
 }
+.face-toggle {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.face-toggle:hover {
+  color: var(--text);
+}
+.face-toggle.state-hidden {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.face-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
 code {
   background: #0d1117;
   padding: 1px 4px;

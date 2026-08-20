@@ -176,3 +176,109 @@
   recounted `edgePaths` incident to the hovered vertex, which would have
   double-counted once these edges could appear there - switched to reading
   `state._degree` directly instead.
+- Added a purely visual face-rendering layer (`js/faces.js`). Adjacent hull
+  triangles (sharing an edge) whose outward normals agree to within
+  `FACE_COPLANAR_DOT = 0.9995` (~1.8°) are union-find merged into a single
+  flat n-gon; requiring *adjacency*, not just parallel normals, is what
+  distinguishes a genuine flat face from a merely-coplanar non-face like an
+  octahedron's internal diagonal plane (whose two triangles aren't even
+  hull faces, let alone adjacent to each other). Boundary edges of each
+  merged group are chained into an ordered polygon loop using the hull's
+  existing consistent CCW winding; a convex hull's intersection with a
+  supporting plane is always itself convex, so this can never produce a
+  self-intersecting (bowtie) loop - only a defensive fallback for float-
+  precision edge cases, never expected to trigger. Ordinary triangles fall
+  out of the same algorithm as 3-sided singleton groups, so the messy,
+  generically-asymmetric triangulation seen early in a run (or in any
+  configuration without exact flat faces) needs no special-casing: it's
+  simply the generic case where nothing merges. Nothing is rendered by
+  default (a new "Faces by side count" panel, mirroring the vertex-degree
+  histogram but with a simpler 2-state show/hide toggle per row rather than
+  the vertices' 3-state highlight/hide cycle, since faces have no "always
+  visible" base state to begin with) - the user opts into seeing a given
+  side count, coloured consistently by a hue keyed to that count, and named
+  in English (Triangle, Quadrilateral, ..., Icosagon at 20 sides, "N-gon"
+  beyond - `faceSidesName()` in `js/faces.js`). Hovering a shown face
+  (paused only) reports its side count and area (summed from the original
+  simplicial triangles' flat areas, pre-merge); the title itself is the
+  vertex list "v1-v2-...-vk" rather than a separate vertex-count row, since
+  that count is always redundant with the side count for a polygon.
+- Extended vertex hiding to faces with the same full treatment edges
+  already got: a face touching a hidden vertex is dropped, and
+  `computeFacesForPoints()` (already subset-capable, mirroring
+  `computeEdgesForPoints()`) reruns on just the visible points, surfacing
+  any "non-local" faces - flat regions that only exist once the hiding
+  vertex is gone - deduplicated against the full-set faces and drawn
+  dashed, exactly like non-local edges. Also: in "Arcs" edge style, face
+  boundaries are now subdivided into the same slerp arcs edges use instead
+  of flat chords, so a shown face renders as a genuine spherical tile
+  rather than a flat polytope facet in that mode (`buildFacePath()` in
+  `js/render.js`); "Lines"/"None" style still draws the flat polytope face.
+- Added a left-panel "Faces" Hide/Show segmented control (`state.facesVisible`)
+  as the master switch for the whole face layer, right below Edges -
+  defaults to Hide, matching the layer's original declutter-by-default
+  intent. The right panel's per-side-count histogram is now the *fine*
+  control underneath it: each row's default appearance is "shown" (no
+  special styling) and toggles to a dim strikethrough on click
+  (`state.hiddenFaceSides`, reusing the vertex-degree histogram's
+  `state-hidden` look), so e.g. triangles can be individually suppressed
+  while other side-counts stay visible once the master switch is on. That
+  per-side-count set is intentionally independent of, and persists across,
+  the master switch. Also fixed a related staleness bug while making this
+  change: the histogram was reading `state._faces` from the raw full-point-
+  set `computeFaces()` result rather than the post-hiding/non-local
+  `faceCandidates` list, so its counts didn't update when vertices were
+  hidden even though the 3D rendering itself already did.
+- Face colours switched from a generated hue ramp to a fixed, named
+  6-colour palette (turquoise/teal-blue, yellow, salmon-pink, green,
+  orange, purple), cycling starting at 4 sides so triangles - the
+  overwhelming majority, especially pre-convergence - get a deliberately
+  muted, non-intrusive neutral (matching the app's own `--muted` grey-blue)
+  instead of competing for attention with a vivid hue; every other
+  side-count gets one of the 6 vivid colours, distinct from that neutral
+  and from each other (`FACE_TRIANGLE_COLOR`/`FACE_COLOR_PALETTE` in
+  `js/render.js`). Also switched from culling rear-facing faces entirely to
+  drawing them too - back-to-front painter's-algorithm sorted and
+  depth-faded (0.35 at the far back to 1.0 at the front), the same idea as
+  the existing vertex tension colouring - so e.g. a snub cube's rear square
+  faces are visible (faded) rather than silently dropped.
+- Split the statistics panel's vertex/face histograms out into their own
+  "Geometry" section, separate from the numeric Steps/Energy/Max force
+  stats above and the Graphs section below.
+- Added an on-canvas hover highlight for whichever vertex/edge/face the
+  tooltip is currently describing (a bright ring for a vertex, a thicker
+  bright stroke for an edge, a light fill + bright stroke for a face -
+  `drawHoverHighlight()` in `js/render.js`), rather than only surfacing the
+  hovered element's details in the tooltip with no on-canvas cue.
+  Implemented via a one-frame-lagged read of hover.js's hit-test result
+  (`currentHoverTarget`, written at the end of the *previous* frame's
+  `updateHover()` call) rather than threading hit-testing ahead of the
+  render passes it depends on - imperceptible in practice since the mouse
+  is stationary between frames at 60fps, and far simpler than a full
+  compute/render split.
+- Fixed hover priority/depth bugs surfaced by rendering rear faces: the
+  face hit-test had no depth check at all, and iterated `facePaths` (sorted
+  back-to-front for painter's-algorithm rendering) breaking on the *first*
+  polygon match - so once a rear face could overlap a front one on screen
+  (e.g. a square antiprism's far square nearly eclipsed by the near one),
+  hovering would silently lock onto the rear face instead. Now: vertex >
+  edge > face priority is checked strictly among *front-hemisphere*
+  candidates only at every level (rear elements are never hoverable, full
+  stop), and if several front faces still overlap on screen, the nearest
+  (highest avgZ) one wins rather than whichever came first in the sorted
+  array. Also switched the edge hit-test's front/back check from a coarse
+  average of the two endpoints' z to the z *at the actual closest point on
+  the path* (`closestPointOnPath()`), fixing misclassification for curving
+  "arcs"-style paths and especially longer non-local edges, whose endpoints
+  can both read as front-facing while the arc's midpoint dips behind the
+  horizon (or vice versa).
+- Diagnosed a separate source of "edges are hard to hover" confusion: a
+  face's own boundary is drawn with its own stroke (`faceStrokeColor()`,
+  dashed identically to non-local edges when the face itself is non-local)
+  but in that side-count's palette colour, not the edges' fixed blue - so a
+  dashed line in any colour *other* than blue is a face outline, not an
+  edge, and has no entry in `edgePaths` at all. Aiming exactly at that thin
+  stroke also used to miss the face's own hover, since it sits just outside
+  the strict point-in-polygon interior test. Added a boundary-distance
+  fallback (`FACE_BOUNDARY_HIT_R`) so hovering a face's outline itself, not
+  just its interior, resolves to that face.

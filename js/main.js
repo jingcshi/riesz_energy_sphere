@@ -31,7 +31,9 @@ const energyVal = document.getElementById("energyVal");
 const stepVal = document.getElementById("stepVal");
 const forceVal = document.getElementById("forceVal");
 const degreeHistogramEl = document.getElementById("degreeHistogram");
+const faceHistogramEl = document.getElementById("faceHistogram");
 const edgeButtons = document.querySelectorAll("#edgeSegmented .seg");
+const faceVisButtons = document.querySelectorAll("#faceVisSegmented .seg");
 const metricButtons = document.querySelectorAll("#metricSegmented .seg");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomVal = document.getElementById("zoomVal");
@@ -83,6 +85,13 @@ edgeButtons.forEach((btn) => {
     edgeButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     state.edgeStyle = btn.dataset.style;
+  });
+});
+faceVisButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    faceVisButtons.forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.facesVisible = btn.dataset.vis;
   });
 });
 metricButtons.forEach((btn) => {
@@ -185,6 +194,46 @@ degreeHistogramEl.addEventListener("mousedown", (e) => {
   _degreeHistogramSig = null; // force the next frame to re-render with the new state
 });
 
+// The left panel's Faces Hide/Show segmented control is the coarse master
+// switch for the whole layer; this histogram is the fine-grained control
+// underneath it. Each row defaults to "standard" (shown, once the master
+// switch is on) and toggles to a dim strikethrough ("hidden") on click -
+// membership in state.hiddenFaceSides, which is deliberately independent
+// of (and persists across) the master switch, so flipping Hide/Show back
+// and forth in the left panel never forgets which individual side-counts
+// you'd already chosen to suppress. Sorted side-count descending, same
+// convention as the vertex-degree histogram, and rebuilt only on signature
+// change for the same click-reliability reason (see updateDegreeHistogram
+// above).
+let _faceHistogramSig = null;
+function updateFaceHistogram() {
+  const faces = state._faces || [];
+  const counts = new Map();
+  for (const f of faces) counts.set(f.sides, (counts.get(f.sides) || 0) + 1);
+  const rows = Array.from(counts.entries()).sort((a, b) => b[0] - a[0]);
+  const sig = rows.map(([s, c]) => `${s}:${c}`).join(",") + "|" +
+    Array.from(state.hiddenFaceSides).sort().join(",");
+  if (sig === _faceHistogramSig) return;
+  _faceHistogramSig = sig;
+  faceHistogramEl.innerHTML = rows
+    .map(([sides, count]) => {
+      const stateClass = state.hiddenFaceSides.has(sides) ? " state-hidden" : "";
+      const swatch = faceStrokeColor(sides);
+      const label = faceSidesName(sides);
+      return `<div class="stat"><span class="face-toggle${stateClass}" data-sides="${sides}">` +
+        `<span class="face-swatch" style="background:${swatch}"></span>${label}</span><span class="v">${count}</span></div>`;
+    })
+    .join("");
+}
+faceHistogramEl.addEventListener("mousedown", (e) => {
+  const target = e.target.closest("[data-sides]");
+  if (!target) return;
+  const sides = parseInt(target.dataset.sides, 10);
+  if (state.hiddenFaceSides.has(sides)) state.hiddenFaceSides.delete(sides);
+  else state.hiddenFaceSides.add(sides);
+  _faceHistogramSig = null;
+});
+
 // ---------- main loop ----------
 // `speed` is a playback-rate multiplier on physics steps per rendered frame,
 // not a physics timestep multiplier (see physics.js) - at speed=1 this runs
@@ -212,6 +261,7 @@ function tick() {
   energyVal.textContent = state.energy.toFixed(4);
   forceVal.textContent = state.maxForce.toExponential(2);
   updateDegreeHistogram();
+  updateFaceHistogram();
   drawEnergyChart();
   drawForceChart();
   requestAnimationFrame(tick);
