@@ -9,11 +9,6 @@ mutual repulsive energy. Points are pushed apart by projected gradient
 descent, live, in the browser, with full control over the exponent, the
 distance metric, and how the result is visualized.
 
-A quick search didn't turn up an existing interactive tool that lets you
-freely sweep the exponent (including the p→0 logarithmic/Fekete-point limit)
-*and* toggle between the Euclidean and geodesic metric on the same live
-simulation — so this may be filling a small but real gap.
-
 ## What it simulates
 
 The energy being minimized is
