@@ -19,6 +19,37 @@ const state = {
   _energyHistory: [],
 };
 
+// ---------- p slider domain ----------
+// A pseudo-logarithmic scale: fine steps where the small-N phase transitions
+// live (Schwartz's N=5 transition is at p~15, well inside the 0.5-step
+// band), coarsening steadily as p grows, since large p behaves increasingly
+// like a smooth interpolation toward the p=Infinity (Tammes/max-min) limit
+// where the exact value stops mattering much. Built by index rather than by
+// repeated float addition to avoid step-accumulation drift (e.g. a naive
+// 0.1+0.1+0.1 landing on 1.7000000000000002).
+function buildPValues() {
+  const vals = [];
+  const pushRange = (from, to, step) => {
+    const n = Math.round((to - from) / step);
+    for (let i = 0; i <= n; i++) vals.push(Math.round((from + i * step) * 100) / 100);
+  };
+  pushRange(0, 2, 0.1);     // 21 values: the original slider's range/step
+  pushRange(2.2, 6, 0.2);   // 20 values
+  pushRange(6.5, 16, 0.5);  // 20 values (covers the N=5 TBP->square-pyramid transition at p~15.05)
+  pushRange(17, 25, 1);     // 9 values
+  for (let v = 50; v <= 400; v *= 2) vals.push(v); // 4 values: 50, 100, 200, 400
+  vals.push(Infinity);      // the Tammes (max-min distance) limit - see TODO.md
+  return vals; // 75 total
+}
+const P_VALUES = buildPValues();
+const P_DEFAULT_INDEX = P_VALUES.indexOf(1.0); // Coulomb/Newtonian law
+
+function formatP(p) {
+  if (p === Infinity) return "\u221e";
+  if (p >= 50) return String(p);
+  return p.toFixed(p <= 2 ? 2 : 1);
+}
+
 // Capped so a very long run doesn't grow this array forever; halves
 // resolution (keeps every other sample) rather than dropping the tail, so
 // the chart still shows the full step range, just coarser.
@@ -99,6 +130,21 @@ function randomTangentAt(xi, rnd) {
 function computeEnergyAndForce() {
   const pts = state.points;
   const n = pts.length;
+
+  // p=Infinity is the Tammes (maximize the minimum pairwise distance) limit,
+  // not a Riesz energy at all - d^-Infinity isn't a meaningful summand, and
+  // there's no gradient-descent-friendly objective defined yet (see TODO.md).
+  // Report inert stats rather than let the sum blow up; main.js also disables
+  // Play whenever this is selected, and maxForce=0 here means stepPhysics()
+  // would no-op even if it were somehow invoked anyway.
+  if (state.p === Infinity) {
+    state.energy = NaN;
+    state._forces = pts.map(() => [0, 0, 0]);
+    state._pointEnergy = new Array(n).fill(NaN);
+    state.maxForce = 0;
+    return state._forces;
+  }
+
   const p = state.p;
   const spherical = state.metric === "spherical";
   let energy = 0;
@@ -201,6 +247,7 @@ function computeEnergyAndForce() {
 // *current* metric/p, independent of edge rendering style - used by the
 // hover info panel to report an edge's "force" property.
 function pairForceMagnitude(i, j) {
+  if (state.p === Infinity) return NaN; // Tammes limit - not a Riesz force, see TODO.md
   const xi = state.points[i], xj = state.points[j], p = state.p;
   if (state.metric === "spherical") {
     const dot = Math.max(-1, Math.min(1, xi[0] * xj[0] + xi[1] * xj[1] + xi[2] * xj[2]));

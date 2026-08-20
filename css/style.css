@@ -146,6 +146,10 @@ button {
 button:hover {
   background: #30363d;
 }
+button.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 button.primary.state-play {
   background: var(--green);
   border-color: var(--green);

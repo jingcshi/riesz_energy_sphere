@@ -38,7 +38,7 @@
 
     <div class="control">
       <label>p (Riesz exponent)<span class="val" id="pVal">1.00</span></label>
-      <input type="range" id="pSlider" min="0" max="2" step="0.05" value="1.00">
+      <input type="range" id="pSlider" min="0" max="74" step="1" value="10">
     </div>
 
     <div class="control">
@@ -126,6 +126,14 @@
           Euclidean chord to the geodesic (great-circle) angle, matching a universe
           where nothing can act except along the sphere's own surface. The metric
           toggle is independent of edge rendering below.
+        </p>
+        <p>
+          The p slider runs from 0 to 400 on a coarsening scale, since larger p
+          increasingly behaves like a smooth interpolation toward the p&rarr;&infin;
+          limit &mdash; where the energy sum degenerates into the Tammes problem
+          (maximizing the closest pairwise distance) instead. That limit is included
+          as the topmost slider position for reference, but isn't a differentiable
+          objective and doesn't yet drive the simulation (Play is disabled there).
         </p>
       </div>
       <div class="tab-panel" data-tab="edges">

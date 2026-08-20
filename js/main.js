@@ -47,10 +47,20 @@ nSlider.addEventListener("input", () => {
   nVal.textContent = state.N;
   resetConfiguration();
 });
+// Native `disabled` suppresses hover/title tooltips in most browsers, which
+// would hide the explanation - use a CSS class + a click guard instead.
+function updatePInfinityUI() {
+  const isInf = state.p === Infinity;
+  playBtn.classList.toggle("disabled", isInf);
+  playBtn.title = isInf ? "Tammes mode (p=\u221e) isn't implemented yet \u2013 see TODO.md" : "";
+  if (isInf) setPlaying(false);
+}
+
 pSlider.addEventListener("input", () => {
-  state.p = parseFloat(pSlider.value);
-  pVal.textContent = state.p.toFixed(2);
+  state.p = P_VALUES[parseInt(pSlider.value, 10)];
+  pVal.textContent = formatP(state.p);
   state._trust = 1.0; // landscape stiffness changed with p - retune step size
+  updatePInfinityUI();
   computeEnergyAndForce();
 });
 seedInput.addEventListener("change", () => {
@@ -87,7 +97,10 @@ zoomSlider.addEventListener("input", () => {
   state.zoom = parseFloat(zoomSlider.value) / 100;
   zoomVal.textContent = zoomSlider.value + "%";
 });
-playBtn.addEventListener("click", () => setPlaying(!state.playing));
+playBtn.addEventListener("click", () => {
+  if (state.p === Infinity) return;
+  setPlaying(!state.playing);
+});
 resetBtn.addEventListener("click", () => {
   setPlaying(false);
   resetConfiguration();
@@ -144,10 +157,11 @@ function tick() {
 
 // ---------- init ----------
 state.N = parseInt(nSlider.value, 10);
-state.p = parseFloat(pSlider.value);
+state.p = P_VALUES[parseInt(pSlider.value, 10)];
 state.seed = parseInt(seedInput.value, 10);
 state.speed = parseFloat(speedSlider.value);
 state.zoom = parseFloat(zoomSlider.value) / 100;
+updatePInfinityUI();
 resizeCanvas();
 resizeEnergyChart();
 resizeForceChart();
