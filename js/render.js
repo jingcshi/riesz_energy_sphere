@@ -130,6 +130,18 @@ function draw() {
     ctx.strokeStyle = "rgba(13,17,23,0.6)";
     ctx.lineWidth = 1;
     ctx.stroke();
+
+    // Degree-highlight ring (see the clickable "Degree x" rows in the
+    // statistics panel) - an outline rather than a fill, so it frames the
+    // existing tension-coloured point instead of covering it.
+    const deg = state._degree ? state._degree[pt.idx] : undefined;
+    if (deg !== undefined && state.highlightedDegrees.has(deg)) {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, radius * 1.2, 0, 2 * Math.PI);
+      ctx.strokeStyle = "#ffd60a";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
   }
 
   updateHover(projected, edgePaths);

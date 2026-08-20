@@ -130,3 +130,12 @@
   the button stuck on "Pause") once `maxForce` dropped below the stop
   threshold, since the old check only skipped *stepping*, not playback
   state - now calls the same `setPlaying(false)` a manual pause uses.
+- Click-to-highlight by degree: each "Degree x" row in the statistics
+  histogram is now a toggle (delegated click handler, since rows are
+  re-rendered from scratch every frame) that rings every vertex of that
+  degree in yellow on the canvas - a quick way to spot the mesoscopic
+  5-/7-fold "scars" mentioned in the large-N survey referenced above.
+  `computeEdges()` now also populates `state._degree` (per-vertex degree
+  from the final, EDGE_C-filtered edge list) alongside the edges themselves,
+  shared by both the histogram and the canvas highlight so they can't drift
+  out of sync with each other.

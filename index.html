@@ -86,7 +86,7 @@
     <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
     <div class="stat">Energy <span class="v" id="energyVal">&mdash;</span></div>
     <div class="stat">Max force <span class="v" id="forceVal">&mdash;</span></div>
-    <div class="chart-title chart-title-spaced">Vertices by degree</div>
+    <div class="chart-title chart-title-spaced">Vertices by degree &mdash; click to toggle highlighting</div>
     <div id="degreeHistogram" class="degree-histogram"></div>
 
     <div class="section-title section-title-spaced">Graphs</div>
@@ -175,6 +175,12 @@
           mint, yellow, and orange to red (still moving fast), fading toward the
           background blue with depth. While paused, hovering a front-facing vertex or
           edge shows its numeric details.
+        </p>
+        <p>
+          Clicking a "Degree x" row in the statistics panel's histogram rings every
+          vertex of that degree in yellow &mdash; useful for spotting the mesoscopic
+          "scars" (isolated 5- or 7-fold defects among an otherwise 6-fold lattice)
+          that larger, relaxed configurations tend to settle into.
         </p>
       </div>
     </div>

@@ -17,6 +17,7 @@ const state = {
   zoom: 1.0, // origin-centered scale multiplier, no translation
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
   _energyHistory: [],
+  highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
 };
 
 // ---------- p slider domain ----------

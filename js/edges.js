@@ -91,6 +91,11 @@ function computeEdges() {
       if (!seen.has(key)) { seen.add(key); edges.push([Math.min(i, j), Math.max(i, j)]); }
     }
   }
+
+  const degree = new Array(n).fill(0);
+  for (const [a, b] of edges) { degree[a]++; degree[b]++; }
+  state._degree = degree; // exposed for the degree histogram and its vertex highlighting
+
   return edges;
 }
 

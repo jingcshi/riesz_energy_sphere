@@ -210,6 +210,16 @@ button.reset:hover {
 .degree-histogram .stat {
   padding: 2px 0;
 }
+.degree-toggle {
+  cursor: pointer;
+}
+.degree-toggle:hover {
+  color: var(--text);
+}
+.degree-toggle.active {
+  color: #ffd60a;
+  font-weight: 600;
+}
 code {
   background: #0d1117;
   padding: 1px 4px;

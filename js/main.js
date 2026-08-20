@@ -133,19 +133,30 @@ infoTabButtons.forEach((btn) => {
 // Sorted high-degree-first, since that's the more informative end for
 // spotting defects (a lone degree-7 vertex among mostly-6 is a disclination;
 // a lone low-degree one is comparatively unremarkable/expected near a
-// 5-fold symmetric arrangement).
+// 5-fold symmetric arrangement). Each row's "Degree x" label doubles as a
+// toggle button (delegated click handler below) that rings every vertex of
+// that degree on the canvas, for spotting mesoscopic defects/scars.
 function updateDegreeHistogram() {
-  const edges = state._edgeList || [];
-  const n = state.points ? state.points.length : 0;
-  const degree = new Array(n).fill(0);
-  for (const [i, j] of edges) { degree[i]++; degree[j]++; }
+  const degree = state._degree || [];
   const counts = new Map();
   for (const d of degree) counts.set(d, (counts.get(d) || 0) + 1);
   const rows = Array.from(counts.entries()).sort((a, b) => b[0] - a[0]);
   degreeHistogramEl.innerHTML = rows
-    .map(([deg, count]) => `<div class="stat"><span>Degree ${deg}</span><span class="v">${count}</span></div>`)
+    .map(([deg, count]) => {
+      const active = state.highlightedDegrees.has(deg);
+      return `<div class="stat"><span class="degree-toggle${active ? " active" : ""}" data-degree="${deg}">Degree ${deg}</span><span class="v">${count}</span></div>`;
+    })
     .join("");
 }
+// Delegated once (rows are re-rendered from scratch every frame, so listeners
+// attached directly to them would be lost immediately).
+degreeHistogramEl.addEventListener("click", (e) => {
+  const target = e.target.closest("[data-degree]");
+  if (!target) return;
+  const deg = parseInt(target.dataset.degree, 10);
+  if (state.highlightedDegrees.has(deg)) state.highlightedDegrees.delete(deg);
+  else state.highlightedDegrees.add(deg);
+});
 
 // ---------- main loop ----------
 // `speed` is a playback-rate multiplier on physics steps per rendered frame,
