@@ -9,28 +9,9 @@
   `N = 10T+2` for `T = h²+hk+k²`, i.e. 12, 32, 42, 72, 92, 122, 132, 162, ...;
   and a literature-reported 5-7 disclination "scarring" crossover around
   `N ~ 500-1000` where exact icosadeltahedral symmetry stops being optimal).
-  Reaching that range needs both pieces below; neither alone is enough.
+  Reaching that range needs the Barnes-Hut piece below; the convex-hull half
+  is done (see "Done" below).
 
-  - **Convex hull (spherical Delaunay), repurposing `EDGE_C` as a filter
-    rather than the primary detector.** Since every point already lies on
-    the unit sphere, the 3D convex hull's facets *are* the spherical Delaunay
-    triangulation directly (no interior points to discard). A Quickhull-style
-    incremental hull is `O(N log N)` expected, versus the current all-pairs
-    `O(N²)` distance matrix in `computeEdges()`.
-    - Raw hull output is simplicial (triangles only), so a literal
-      quadrilateral face (e.g. the square antiprism's two square faces at
-      N=8) comes back as two triangles joined by an arbitrary diagonal —
-      the same spurious "X across a square" artifact discussed previously.
-      The fix: once the hull gives each vertex its actual incident edges
-      (avg. degree ~6, since a triangulation has `E ~ 3V` by Euler's
-      formula), reuse the old `EDGE_C = 1.3` ratio test *locally* — for each
-      vertex, drop any incident hull edge longer than `EDGE_C` times that
-      vertex's shortest incident edge. This is exactly the diagonal-vs-side
-      test needed to un-triangulate a coplanar quad, but now applied to
-      ~6 candidates per vertex instead of all `N-1` others: `O(6N)` total
-      instead of `O(N²)`, i.e. the heuristic's role flips from "find the
-      edges" (expensive, approximate) to "filter a small, already-correct
-      candidate set" (cheap, only resolves the coplanar-diagonal ambiguity).
   - **Barnes-Hut spatial tree** for the force/energy sum itself, `O(N log N)`
     per step instead of `O(N²)`. Still generalizes cleanly to arbitrary `p`
     and both metrics (it just samples `energyAndMagnitude()` at a cluster
@@ -45,8 +26,8 @@
     approximation's own error budget rather than assuming exact energy is
     unavoidable, before falling back to a full exact-energy accept/reject
     pass (which would erase most of the asymptotic win).
-  - Once both land, raise the N slider max, update the Edges/Controls info
-    tabs, and pressure-test around the reported 500-1000 crossover.
+  - Once it lands, raise the N slider max and pressure-test around the
+    reported 500-1000 crossover.
 
 - **p → ∞ (Tammes / max-min distance) limit.** Added the slider position, but
   deliberately left unimplemented (Play is disabled there) — this is *not* a
@@ -122,3 +103,19 @@
   how many decades a run spans, and gave the info modal's tab body a fixed
   height so switching tabs no longer shifts the tabs/modal position on
   screen (shorter tabs just leave blank space below their text instead).
+- Replaced `computeEdges()`'s all-pairs distance matrix with a real 3D
+  convex hull (`js/hull.js`, classic incremental algorithm) plus a local
+  `EDGE_C = 1.3` ratio filter over each vertex's hull-incident edges only,
+  as sketched in the (now-resolved) "On hold" entry above. Verified against
+  Euler's formula and known small-N configs (octahedron: 12/12 edges kept;
+  icosahedron: 30/30; square antiprism: the hull's 2 spurious triangulated-
+  square diagonals correctly dropped, 16 of 18 kept) - see git history for
+  the Node test harness. Falls back to the old all-pairs method only when
+  the hull degenerates (N<4 or coplanar points). Visibility tests are
+  against the full current face list each insertion (`O(N)` faces x `O(N)`
+  insertions), not a conflict-graph, so this is `O(N²)` rather than the
+  textbook `O(N log N)` - still a real win in practice (dot products
+  instead of sqrt'd distances, ~6 candidates per vertex to filter instead of
+  N-1), and a fine incremental step toward the Barnes-Hut work above, but
+  worth revisiting if that O(N²) becomes the new bottleneck once N grows
+  into the hundreds.

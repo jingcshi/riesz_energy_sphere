@@ -1,10 +1,25 @@
 "use strict";
 
 // ---------- neighbour graph ----------
-// For each point, connect it to every other point within EDGE_C times its
-// nearest-neighbour distance. O(N^2), trivial for N <= 100.
+// Primary path: the 3D convex hull (js/hull.js) IS the spherical Delaunay
+// triangulation here, since every point lies exactly on the unit sphere -
+// O(N^2) worst case (see hull.js), but with only dot products per test and
+// avg. ~6 hull-incident candidates per vertex afterwards, versus a full
+// O(N^2) sqrt'd distance matrix. Falls back to that all-pairs distance
+// matrix only when the hull degenerates (N<4, or coplanar points).
 //
-// EDGE_C bounds, found empirically by relaxing the actual energy minimizers
+// EDGE_C still matters even with a real triangulation: raw hull output is
+// simplicial (triangles only), so a literal quadrilateral face (e.g. the
+// square antiprism's two square faces at N=8) comes back as two triangles
+// joined by an arbitrary diagonal - a spurious "X across a square". EDGE_C
+// resolves that by dropping, per vertex, any incident hull edge longer than
+// EDGE_C times that vertex's shortest incident edge - this is exactly the
+// diagonal-vs-side test needed to un-triangulate a coplanar quad, but now
+// applied to ~6 hull-given candidates per vertex instead of all N-1 others
+// (the heuristic's role flips from "find the edges" to "filter an
+// already-correct candidate set").
+//
+// Bounds below, found empirically by relaxing the actual energy minimizers
 // for small N (see git history / chat log for the derivation script) and
 // reading off, per vertex, the ratio of its longest "true" hull edge and its
 // shortest "false" (non-adjacent) distance, both relative to its own nearest
@@ -17,42 +32,62 @@
 // The sqrt(2) ceiling recurs because it's a pure Euclidean fact (a square's
 // diagonal is always sqrt(2) times its side) independent of p, N, or energy -
 // it shows up whenever the hull has a square face (N=6, N=8, ...).
-//
-// Note this does NOT keep improving with N as one might hope: N=9's lower
-// bound (~1.24) is already tighter than N=5's, and spot checks up to N=30
-// found individual 5-fold-defect vertices needing c beyond 1.4 - i.e. no
-// single constant is exactly correct for every N. EDGE_C is a heuristic that
-// works well for typical/most vertices, not an exact hull reconstruction; a
-// true convex-hull (Delaunay-on-sphere) triangulation would be the robust
-// fix for a future iteration.
 const EDGE_C = 1.3;
+
+function pointDist(pts, i, j) {
+  const dx = pts[i][0] - pts[j][0], dy = pts[i][1] - pts[j][1], dz = pts[i][2] - pts[j][2];
+  return Math.sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+// Fallback for degenerate point sets (N<4 or coplanar): all-pairs distance
+// matrix, exactly as before the hull was introduced.
+function allPairsNeighbours(pts) {
+  const n = pts.length;
+  const neighbourSets = new Array(n);
+  for (let i = 0; i < n; i++) neighbourSets[i] = new Set();
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      neighbourSets[i].add(j);
+      neighbourSets[j].add(i);
+    }
+  }
+  return neighbourSets;
+}
 
 function computeEdges() {
   const pts = state.points;
   const n = pts.length;
   if (n < 2) return [];
-  const dist = new Array(n);
-  for (let i = 0; i < n; i++) dist[i] = new Array(n).fill(0);
-  for (let i = 0; i < n; i++) {
-    for (let j = i + 1; j < n; j++) {
-      const dx = pts[i][0] - pts[j][0], dy = pts[i][1] - pts[j][1], dz = pts[i][2] - pts[j][2];
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      dist[i][j] = d; dist[j][i] = d;
+
+  const hullFaces = computeConvexHull3D(pts);
+  const neighbourSets = new Array(n);
+  for (let i = 0; i < n; i++) neighbourSets[i] = new Set();
+  if (hullFaces) {
+    for (const [a, b, c] of hullFaces) {
+      neighbourSets[a].add(b); neighbourSets[b].add(a);
+      neighbourSets[b].add(c); neighbourSets[c].add(b);
+      neighbourSets[c].add(a); neighbourSets[a].add(c);
     }
+  } else {
+    const fallback = allPairsNeighbours(pts);
+    for (let i = 0; i < n; i++) neighbourSets[i] = fallback[i];
   }
+
   const nearest = new Array(n).fill(Infinity);
   for (let i = 0; i < n; i++)
-    for (let j = 0; j < n; j++)
-      if (i !== j && dist[i][j] < nearest[i]) nearest[i] = dist[i][j];
+    for (const j of neighbourSets[i]) {
+      const d = pointDist(pts, i, j);
+      if (d < nearest[i]) nearest[i] = d;
+    }
   state._nearest = nearest; // exposed for the hover info panel's r0 readout
 
   const edges = [];
   const seen = new Set();
   for (let i = 0; i < n; i++) {
     const threshold = EDGE_C * nearest[i];
-    for (let j = 0; j < n; j++) {
-      if (i === j || dist[i][j] > threshold) continue;
-      const key = i < j ? i * 1000 + j : j * 1000 + i;
+    for (const j of neighbourSets[i]) {
+      if (pointDist(pts, i, j) > threshold) continue;
+      const key = i < j ? i * 1000000 + j : j * 1000000 + i;
       if (!seen.has(key)) { seen.add(key); edges.push([Math.min(i, j), Math.max(i, j)]); }
     }
   }
