@@ -96,6 +96,7 @@ function draw() {
   // (r0 per vertex) is available for the hover panel even when edges aren't
   // drawn; only render it when the edge style calls for it.
   const edgeList = computeEdges();
+  state._edgeList = edgeList; // exposed for the degree-histogram stat
   let edgePaths = [];
   if (state.edgeStyle !== "none") {
     edgePaths = computeEdgeScreenPaths(edgeList, cx, cy, scale);

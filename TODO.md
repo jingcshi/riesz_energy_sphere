@@ -119,3 +119,14 @@
   N-1), and a fine incremental step toward the Barnes-Hut work above, but
   worth revisiting if that O(N²) becomes the new bottleneck once N grows
   into the hundreds.
+- Added Degree (vertex) and Arc angle in degrees (edge) to the hover info
+  panel.
+- Split the single side panel into two: Controls (left, Parameters +
+  Animation sections) and Statistics (right, Statistics + Graphs sections,
+  including a new vertex-count-by-degree histogram sorted high to low).
+  Reset given a slightly lighter/higher-opacity fill to read as more
+  distinct from the default button background. Also fixed the
+  auto-converged case not actually pausing: `state.playing` stayed true (and
+  the button stuck on "Pause") once `maxForce` dropped below the stop
+  threshold, since the old check only skipped *stepping*, not playback
+  state - now calls the same `setPlaying(false)` a manual pause uses.

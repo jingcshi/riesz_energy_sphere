@@ -43,13 +43,31 @@ canvas {
 canvas:active {
   cursor: grabbing;
 }
-#panel {
+.panel {
   width: 300px;
   flex: 0 0 300px;
   background: var(--panel);
-  border-left: 1px solid var(--border);
   padding: 20px;
   overflow-y: auto;
+}
+.panel-left {
+  border-right: 1px solid var(--border);
+}
+.panel-right {
+  border-left: 1px solid var(--border);
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 14px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section-title-spaced {
+  margin-top: 24px;
 }
 .title-row {
   display: flex;
@@ -167,12 +185,12 @@ button.primary.state-pause:hover {
   background: var(--yellow-hover);
 }
 button.reset {
-  background: #30363d;
-  border-color: #444c56;
+  background: #3a4148;
+  border-color: #4d5560;
   color: var(--text);
 }
 button.reset:hover {
-  background: #3a4148;
+  background: #444c56;
 }
 .divider {
   border-top: 1px solid var(--border);
@@ -188,6 +206,9 @@ button.reset:hover {
 .stat span.v {
   color: var(--text);
   font-variant-numeric: tabular-nums;
+}
+.degree-histogram .stat {
+  padding: 2px 0;
 }
 code {
   background: #0d1117;

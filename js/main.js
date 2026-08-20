@@ -30,6 +30,7 @@ const resetBtn = document.getElementById("resetBtn");
 const energyVal = document.getElementById("energyVal");
 const stepVal = document.getElementById("stepVal");
 const forceVal = document.getElementById("forceVal");
+const degreeHistogramEl = document.getElementById("degreeHistogram");
 const edgeButtons = document.querySelectorAll("#edgeSegmented .seg");
 const metricButtons = document.querySelectorAll("#metricSegmented .seg");
 const zoomSlider = document.getElementById("zoomSlider");
@@ -129,6 +130,23 @@ infoTabButtons.forEach((btn) => {
   });
 });
 
+// Sorted high-degree-first, since that's the more informative end for
+// spotting defects (a lone degree-7 vertex among mostly-6 is a disclination;
+// a lone low-degree one is comparatively unremarkable/expected near a
+// 5-fold symmetric arrangement).
+function updateDegreeHistogram() {
+  const edges = state._edgeList || [];
+  const n = state.points ? state.points.length : 0;
+  const degree = new Array(n).fill(0);
+  for (const [i, j] of edges) { degree[i]++; degree[j]++; }
+  const counts = new Map();
+  for (const d of degree) counts.set(d, (counts.get(d) || 0) + 1);
+  const rows = Array.from(counts.entries()).sort((a, b) => b[0] - a[0]);
+  degreeHistogramEl.innerHTML = rows
+    .map(([deg, count]) => `<div class="stat"><span>Degree ${deg}</span><span class="v">${count}</span></div>`)
+    .join("");
+}
+
 // ---------- main loop ----------
 // `speed` is a playback-rate multiplier on physics steps per rendered frame,
 // not a physics timestep multiplier (see physics.js) - at speed=1 this runs
@@ -136,20 +154,26 @@ infoTabButtons.forEach((btn) => {
 // faster settings run several steps before the next redraw. The fractional
 // accumulator lets non-integer speeds (e.g. 0.2x) average out correctly.
 const MAX_SUBSTEPS_PER_FRAME = 50;
+const CONVERGED_FORCE = 1e-4;
 function tick() {
-  if (state.playing && state.maxForce > 1e-4) {
+  if (state.playing) {
     state._stepAccum += state.speed;
     let iters = 0;
-    while (state._stepAccum >= 1 && state.maxForce > 1e-4 && iters < MAX_SUBSTEPS_PER_FRAME) {
+    while (state._stepAccum >= 1 && state.maxForce > CONVERGED_FORCE && iters < MAX_SUBSTEPS_PER_FRAME) {
       stepPhysics();
       state._stepAccum -= 1;
       iters++;
     }
+    // Genuinely stop, not just skip stepping: flips Play/Pause back to Play
+    // so the button reflects the true (paused) state instead of silently
+    // idling as "Pause" forever once the configuration has settled.
+    if (state.maxForce <= CONVERGED_FORCE) setPlaying(false);
   }
-  energyVal.textContent = state.energy.toFixed(4);
-  stepVal.textContent = state.step;
-  forceVal.textContent = state.maxForce.toExponential(2);
   draw();
+  stepVal.textContent = state.step;
+  energyVal.textContent = state.energy.toFixed(4);
+  forceVal.textContent = state.maxForce.toExponential(2);
+  updateDegreeHistogram();
   drawEnergyChart();
   drawForceChart();
   requestAnimationFrame(tick);

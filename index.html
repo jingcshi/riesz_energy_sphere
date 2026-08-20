@@ -7,15 +7,7 @@
 </head>
 <body>
 <div id="app">
-  <div id="canvasWrap">
-    <canvas id="scene"></canvas>
-    <div id="zoomControl" class="zoom-control">
-      <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
-      <span class="zoom-label" id="zoomVal">100%</span>
-    </div>
-    <div id="hoverTooltip" class="hover-tooltip hidden"></div>
-  </div>
-  <div id="panel">
+  <div id="controlPanel" class="panel panel-left">
     <div class="title-row">
       <h1>Riesz Energy on S&sup2;</h1>
       <button id="infoBtn" class="icon-btn" type="button" aria-label="About this simulation" title="About">
@@ -31,6 +23,7 @@
       over N points constrained to the unit sphere, via projected gradient descent.
     </p>
 
+    <div class="section-title">Parameters</div>
     <div class="control">
       <label>N (points)<span class="val" id="nVal">40</span></label>
       <input type="range" id="nSlider" min="1" max="100" step="1" value="40">
@@ -57,6 +50,7 @@
       </div>
     </div>
 
+    <div class="section-title section-title-spaced">Animation</div>
     <div class="control">
       <label>Animation speed<span class="val" id="speedVal">1.0&times;</span></label>
       <input type="range" id="speedSlider" min="0.1" max="5" step="0.1" value="1">
@@ -76,14 +70,26 @@
       <button class="primary state-play" id="playBtn">Play</button>
       <button class="reset" id="resetBtn">Reset</button>
     </div>
+  </div>
 
-    <div class="divider"></div>
+  <div id="canvasWrap">
+    <canvas id="scene"></canvas>
+    <div id="zoomControl" class="zoom-control">
+      <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
+      <span class="zoom-label" id="zoomVal">100%</span>
+    </div>
+    <div id="hoverTooltip" class="hover-tooltip hidden"></div>
+  </div>
 
+  <div id="statsPanel" class="panel panel-right">
+    <div class="section-title">Statistics</div>
+    <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
     <div class="stat">Energy <span class="v" id="energyVal">&mdash;</span></div>
-    <div class="stat">Step <span class="v" id="stepVal">0</span></div>
     <div class="stat">Max force <span class="v" id="forceVal">&mdash;</span></div>
+    <div class="chart-title chart-title-spaced">Vertices by degree</div>
+    <div id="degreeHistogram" class="degree-histogram"></div>
 
-    <div class="divider"></div>
+    <div class="section-title section-title-spaced">Graphs</div>
     <div class="chart-title">Energy vs. step</div>
     <canvas id="energyChart" class="chart-canvas"></canvas>
 
