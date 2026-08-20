@@ -136,11 +136,23 @@ infoTabButtons.forEach((btn) => {
 // 5-fold symmetric arrangement). Each row's "Degree x" label doubles as a
 // toggle button (delegated click handler below) that rings every vertex of
 // that degree on the canvas, for spotting mesoscopic defects/scars.
+//
+// Only rebuilds the DOM when the rendered rows would actually differ - this
+// was called every animation frame (~60/s), unconditionally replacing the
+// whole innerHTML. That silently broke the click: a real click is a
+// mousedown+mouseup pair on the *same* element, but the element under the
+// cursor was being destroyed and replaced with a fresh one before the
+// mouseup ever landed, so the browser never synthesized a "click" at all.
+let _degreeHistogramSig = null;
 function updateDegreeHistogram() {
   const degree = state._degree || [];
   const counts = new Map();
   for (const d of degree) counts.set(d, (counts.get(d) || 0) + 1);
   const rows = Array.from(counts.entries()).sort((a, b) => b[0] - a[0]);
+  const sig = rows.map(([d, c]) => `${d}:${c}`).join(",") + "|" +
+    Array.from(state.highlightedDegrees).sort().join(",");
+  if (sig === _degreeHistogramSig) return;
+  _degreeHistogramSig = sig;
   degreeHistogramEl.innerHTML = rows
     .map(([deg, count]) => {
       const active = state.highlightedDegrees.has(deg);
@@ -148,14 +160,18 @@ function updateDegreeHistogram() {
     })
     .join("");
 }
-// Delegated once (rows are re-rendered from scratch every frame, so listeners
-// attached directly to them would be lost immediately).
-degreeHistogramEl.addEventListener("click", (e) => {
+// Delegated once (rows are still occasionally rebuilt from scratch, so
+// listeners attached directly to them would eventually be lost). "mousedown"
+// rather than "click" is a further guard against the same class of bug -
+// it fires on whatever's under the cursor right now, with no dependency on
+// a later mouseup landing on that exact, possibly-already-replaced, node.
+degreeHistogramEl.addEventListener("mousedown", (e) => {
   const target = e.target.closest("[data-degree]");
   if (!target) return;
   const deg = parseInt(target.dataset.degree, 10);
   if (state.highlightedDegrees.has(deg)) state.highlightedDegrees.delete(deg);
   else state.highlightedDegrees.add(deg);
+  _degreeHistogramSig = null; // force the next frame to re-render with the new active state
 });
 
 // ---------- main loop ----------

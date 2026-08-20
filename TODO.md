@@ -138,4 +138,14 @@
   `computeEdges()` now also populates `state._degree` (per-vertex degree
   from the final, EDGE_C-filtered edge list) alongside the edges themselves,
   shared by both the histogram and the canvas highlight so they can't drift
-  out of sync with each other.
+  out of sync with each other. Initially shipped non-functional: the
+  histogram's `innerHTML` was unconditionally rebuilt every animation frame,
+  which destroyed and replaced the exact `<span>` a click landed on between
+  its mousedown and mouseup, so the browser never fired a "click" at all.
+  Fixed by only rebuilding when the rendered rows actually change (a
+  cheap signature check), plus switching the listener to "mousedown" as a
+  second line of defence against the same failure mode.
+- Widened the font stack to also cover non-Apple platforms explicitly:
+  `-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif` (Apple ->
+  Windows -> Android -> generic fallbacks), rather than jumping straight
+  from `-apple-system` to Helvetica/Arial.

@@ -10,7 +10,7 @@
   --green-hover: #2ea043;
   --yellow: #9e6a03;
   --yellow-hover: #bb8009;
-  --font: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 * { box-sizing: border-box; }
 html, body {
