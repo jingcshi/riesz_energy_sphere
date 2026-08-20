@@ -2,7 +2,7 @@
 
 // ---------- shared line-chart renderer (energy & max-force vs. step) ----------
 const CHART_PAD = { l: 40, r: 8, t: 8, b: 16 };
-const CHART_FONT = "9px -apple-system, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
+const CHART_FONT = "9px system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif";
 
 function setupChartCanvas(canvas) {
   const ctx = canvas.getContext("2d");

@@ -137,7 +137,7 @@ function draw() {
     const deg = state._degree ? state._degree[pt.idx] : undefined;
     if (deg !== undefined && state.highlightedDegrees.has(deg)) {
       ctx.beginPath();
-      ctx.arc(pt.x, pt.y, radius * 1.2, 0, 2 * Math.PI);
+      ctx.arc(pt.x, pt.y, radius * 1.25, 0, 2 * Math.PI);
       ctx.strokeStyle = "#ffd60a";
       ctx.lineWidth = 2;
       ctx.stroke();

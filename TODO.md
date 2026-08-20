@@ -145,7 +145,17 @@
   Fixed by only rebuilding when the rendered rows actually change (a
   cheap signature check), plus switching the listener to "mousedown" as a
   second line of defence against the same failure mode.
-- Widened the font stack to also cover non-Apple platforms explicitly:
-  `-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif` (Apple ->
-  Windows -> Android -> generic fallbacks), rather than jumping straight
-  from `-apple-system` to Helvetica/Arial.
+- Widened the font stack to also cover non-Apple platforms explicitly, then
+  found `-apple-system` alone isn't actually reliable on Mac: on at least
+  one real Mac/browser combination it silently fell through past
+  `-apple-system` (unrecognized in that engine/version) all the way to
+  Roboto, simply because Roboto happened to be installed locally (common -
+  it ships bundled with plenty of cross-platform apps) while "Segoe UI"
+  wasn't. Fixed by leading with the standardized `system-ui` keyword
+  (universally well-supported since ~2017-2021 across engines, and the
+  actual source of truth for "give me this OS's UI font" - see MDN/caniuse),
+  keeping `-apple-system`/`BlinkMacSystemFont` only as legacy-engine
+  fallbacks behind it: `system-ui, -apple-system, BlinkMacSystemFont,
+  "Segoe UI", Roboto, Helvetica, Arial, sans-serif`.
+- Bumped the degree-highlight ring from 1.2x to 1.25x the vertex's display
+  radius, per visual testing.
