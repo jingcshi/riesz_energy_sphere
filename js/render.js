@@ -263,6 +263,10 @@ function drawSphereWireframe(cx, cy, scale) {
   }
 }
 
+// Visible-subset point list, keyed on the points array and the hidden set -
+// see its use in draw() below.
+let _subsetCache = { points: null, sig: "", visibleIdx: null, subPts: null };
+
 function draw() {
   const wrap = document.getElementById("canvasWrap");
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -291,10 +295,22 @@ function draw() {
   // the indices of every point that's still visible, in visible-array
   // order (so a subset re-computation's own local indices can be mapped
   // straight back via visibleIdx[subIdx]).
-  let visibleIdx = null;
+  // Built once and shared by both, rather than each mapping its own copy, and
+  // reused across frames while neither the points nor the hidden set has
+  // changed. Both matter because the hull is memoized on the point array's
+  // identity (see hull.js): a second copy of the same points, or a fresh copy
+  // each frame, would each pay for their own hull and defeat the memo.
+  let visibleIdx = null, subPts = null;
   if (state.hiddenDegrees.size > 0) {
-    visibleIdx = [];
-    for (let i = 0; i < n; i++) if (!isHidden[i]) visibleIdx.push(i);
+    const sig = Array.from(state.hiddenDegrees).sort((a, b) => a - b).join(",");
+    if (_subsetCache.points === state.points && _subsetCache.sig === sig) {
+      ({ visibleIdx, subPts } = _subsetCache);
+    } else {
+      visibleIdx = [];
+      for (let i = 0; i < n; i++) if (!isHidden[i]) visibleIdx.push(i);
+      subPts = visibleIdx.map((i) => state.points[i]);
+      _subsetCache = { points: state.points, sig, visibleIdx, subPts };
+    }
   }
 
   // Faces: purely visual, computed on the true (full) point set. Faces
@@ -317,7 +333,6 @@ function draw() {
     localFaceKeys.add(vertexSetKey(face.vertices));
   }
   if (visibleIdx && visibleIdx.length >= 4) {
-    const subPts = visibleIdx.map((i) => state.points[i]);
     const { faces: subFaces } = computeFacesForPoints(subPts);
     for (const sf of subFaces) {
       const mapped = sf.vertices.map((vi) => visibleIdx[vi]);
@@ -393,7 +408,6 @@ function draw() {
   // graph, not that the interaction itself is any less real. Only kept
   // when they don't already coincide with a true edge already drawn.
   if (visibleIdx && visibleIdx.length >= 2) {
-    const subPts = visibleIdx.map((i) => state.points[i]);
     const { edges: subEdges } = computeEdgesForPoints(subPts);
     for (const [sa, sb] of subEdges) {
       const a = visibleIdx[sa], b = visibleIdx[sb];

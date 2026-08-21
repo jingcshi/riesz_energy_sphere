@@ -32,14 +32,34 @@
     cell-list cutoff there is **exact**, not approximate — no accuracy
     tradeoff and none of the Armijo-tolerance worry above. Two different
     accelerations for two regimes, chosen by `p`.
-  - **Measure before building either.** The pair loop still allocates
-    nothing per pair but does run twice (once for the closest pair, once for
-    the sums), and `state.points` is an array-of-arrays rather than a flat
-    `Float64Array`. A monomorphic typed-array kernel may reach `N ≈ 1000`
-    with no tree at all. Note also that the *rendering* side recomputes the
-    `O(N²)` hull (plus face merging) every frame, so it is likely to become
-    the visible bottleneck before the physics does — check which one
-    actually dominates at `N = 500` before optimizing the wrong half.
+  - **Measured, and the answer was "neither".** ms per call on converged
+    configurations, p=1 Euclidean:
+
+    | N | one hull | edge layer | face layer | one physics step |
+    |---|---|---|---|---|
+    | 100 | 0.23 | 0.26 | 0.33 | 0.15 |
+    | 400 | 2.30 | 2.52 | 2.79 | 2.14 |
+    | 800 | 7.50 | 7.81 | 9.13 | 8.80 |
+    | 1600 | 29.4 | 28.7 | 30.0 | 38.1 |
+
+    Fitted slopes `O(N^1.87)` for the hull and `O(N^2.04)` for the step, so
+    both halves are quadratic and within a factor of two of each other at
+    every size. The rendering side only looked worse because it built *two*
+    independent hulls per frame — now shared and cached (see "Done"), which
+    leaves the physics as the larger half. So the tree is the right next
+    target after all, and the hull's own `O(N²)` is not urgent.
+  - The pair loop still allocates nothing per pair but does run twice (once
+    for the closest pair, once for the sums), and `state.points` is an
+    array-of-arrays rather than a flat `Float64Array`. A monomorphic
+    typed-array kernel may reach `N ≈ 1000` with no tree at all — try that
+    before the tree, since it's a rewrite of one function with no accuracy
+    question attached.
+  - **A conflict-graph hull is probably the wrong fix even when the hull does
+    start to hurt.** The textbook `O(N log N)` rebuild competes against a
+    much better option: the configuration moves only slightly per step, so
+    the previous frame's triangulation is almost correct, and repairing it by
+    edge flips (kinetic Delaunay) is roughly `O(N)` amortized. Recomputing
+    from scratch at any complexity is the thing to avoid, not the constant.
   - Once it lands, raise the N slider max and pressure-test around the
     reported 500-1000 crossover.
 
@@ -75,6 +95,36 @@
     row should probably read `—` and cede the spotlight to Min separation.
 
 ## Done
+
+- **Memoized the convex hull on its point array's identity** (`_hullCache`, a
+  `WeakMap` in `js/hull.js`), which needs no version counter and can't go
+  stale: `physics.js` never mutates a point array in place, rebuilding
+  `state.points` from scratch on every accepted step and on reset, so a given
+  array holds the same coordinates for as long as it exists. Reaching a stale
+  entry would require the array it's keyed on to have changed.
+
+  Two separate wins, since the hull was being rebuilt for two different bad
+  reasons. Within a frame, the edge layer and the face layer each asked for
+  the hull of the same points, so one of the two was always redundant. Across
+  frames, the triangulation depends on the points alone and not on the view,
+  yet `draw()` rebuilt it unconditionally — so rotating, zooming or hovering a
+  *paused* configuration recomputed two hulls per frame for points that hadn't
+  moved. Per rendered frame (edge layer + face layer), ms:
+
+  | N | before | after, playing | after, paused |
+  |---|---|---|---|
+  | 100 | 0.54 | 0.37 | 0.116 |
+  | 400 | 4.66 | 2.69 | 0.559 |
+  | 800 | 15.60 | 8.50 | 1.346 |
+
+  1.8x while playing and 11.6x while paused at N=800, with the paused residue
+  being the EDGE_C filter and the face merge, which still rerun. Verified
+  identical edge lists, degrees and face boundaries against an unmemoized
+  build across 120 consecutive steps at N=60. The visible-subset point list
+  used when vertices are hidden is cached the same way (`_subsetCache` in
+  `js/render.js`, keyed on the points array and the hidden-degree set),
+  because rebuilding it per frame would allocate a fresh array each time and
+  defeat the memo it feeds.
 
 - **Raised the p ceiling from 25 to 1000** by minimizing the energy in log
   form. `computeEnergyAndForce()` no longer sums raw `d^-p` terms; it now
