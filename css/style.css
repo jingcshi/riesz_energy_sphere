@@ -299,7 +299,7 @@ code {
   display: none;
 }
 .modal {
-  width: min(480px, calc(100vw - 40px));
+  width: min(700px, calc(100vw - 40px));
   max-height: min(560px, calc(100vh - 40px));
   background: var(--panel);
   border: 1px solid var(--border);
@@ -317,12 +317,30 @@ code {
   padding: 10px 10px 10px 16px;
   flex: 0 0 auto;
 }
-.tabs {
-  display: flex;
-  gap: 4px;
+.modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
-.tab {
-  flex: 0 0 auto;
+.modal-main {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+/* Section list down the left rather than tabs across the top: the sections
+   have outgrown a single row of tabs, and a vertical list has room for their
+   real names instead of one-word abbreviations. */
+.modal-nav {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.nav-item {
+  text-align: left;
   background: transparent;
   border: none;
   color: var(--muted);
@@ -331,21 +349,21 @@ code {
   border-radius: 6px;
   cursor: pointer;
 }
-.tab:hover {
+.nav-item:hover {
   background: #21262d;
   color: var(--text);
 }
-.tab.active {
+.nav-item.active {
   background: var(--accent-dim);
   color: white;
 }
 .modal-body {
-  /* Fixed rather than content-sized, so the tabs (and the modal itself,
-     which is centered in the overlay) don't shift position when switching
-     to a tab with more or less text - shorter tabs just leave whitespace
-     below their content instead. Tall enough for the longest tab; overflow
-     falls back to scrolling rather than growing the box. */
-  height: 280px;
+  /* Fixed rather than content-sized, so the modal (centered in the overlay)
+     doesn't jump around when switching to a section with more or less text -
+     shorter ones just leave whitespace below instead. Tall enough for the
+     longest section; overflow falls back to scrolling rather than growing. */
+  flex: 1 1 auto;
+  height: 400px;
   padding: 16px 18px;
   overflow-y: auto;
   font-size: 12px;
@@ -465,9 +483,16 @@ code {
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
-/* chi != 2 is informative rather than alarming - it counts how many
-   face-boundary edges the EDGE_C filter dropped - so it gets the muted amber
-   already used for "still working" elsewhere, not a red error colour. */
+/* Filtered edges are a real disagreement between the edge and face layers, but
+   an expected and harmless one, so they get the muted amber already used for
+   "still working" elsewhere rather than a red error colour. Same for a chi
+   that isn't 2, which now only happens for point sets too small to form a
+   closed surface at all (N<4). */
+.euler-filtered {
+  color: #d29922;
+  font-size: 11px;
+  margin-left: 1px;
+}
 .euler-value.euler-off {
   color: #d29922;
 }

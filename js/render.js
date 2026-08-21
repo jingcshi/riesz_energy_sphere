@@ -251,7 +251,6 @@ function draw() {
   // the *true* graph over every point, hidden or not - hiding is display-
   // only and must never feed back into the physics or into r0/degree.
   const edgeList = computeEdges();
-  state._edgeList = edgeList; // exposed for the degree-histogram stat
 
   const n = state.points.length;
   const isHidden = new Array(n).fill(false);
@@ -280,13 +279,6 @@ function draw() {
   // "Faces by side count" panel, so the generic triangle soup (especially
   // pre-convergence) stays invisible by default.
   const faceList = computeFaces();
-  // Exposed for the V/E/F/chi table, which pairs it with state._edgeList
-  // above. Both are the true full-point-set structures, deliberately not the
-  // post-hiding candidate sets below: Euler's formula describes a closed
-  // surface, and hiding vertices is a display-only operation that would tear
-  // holes in it and make chi meaningless.
-  state._faceList = faceList;
-
   const faceCandidates = [];
   const localFaceKeys = new Set();
   for (const face of faceList) {
@@ -350,34 +342,81 @@ function draw() {
     ctx.setLineDash([]);
   }
 
+  // Edge candidates, computed whether or not edges are drawn: the Geometry
+  // count table needs them either way, and the cost is one extra hull over
+  // the visible subset (only when something is actually hidden).
+  const edgeKeys = new Set();
+  const edgeCandidates = [];
+  for (const [a, b] of edgeList) {
+    if (isHidden[a] || isHidden[b]) continue;
+    edgeKeys.add(a + "," + b);
+    edgeCandidates.push({ i: a, j: b, nonLocal: false });
+  }
+  // Non-local edges: rerun Delaunay+EDGE_C on just the surviving (visible)
+  // points, so hiding away everything but e.g. the pentagonal defects
+  // reveals *their own* triangulation - a fresh local r0 among just those
+  // points - rather than only ever showing the true graph with some
+  // edges erased. These are real, physically-interacting pairs (the
+  // underlying Riesz/log potential has no notion of a triangulation) -
+  // "non-local" just means excluded from the visible subset's Delaunay
+  // graph, not that the interaction itself is any less real. Only kept
+  // when they don't already coincide with a true edge already drawn.
+  if (visibleIdx && visibleIdx.length >= 2) {
+    const subPts = visibleIdx.map((i) => state.points[i]);
+    const { edges: subEdges } = computeEdgesForPoints(subPts);
+    for (const [sa, sb] of subEdges) {
+      const a = visibleIdx[sa], b = visibleIdx[sb];
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      const key = `${lo},${hi}`;
+      if (edgeKeys.has(key)) continue;
+      edgeKeys.add(key);
+      edgeCandidates.push({ i: lo, j: hi, nonLocal: true });
+    }
+  }
+
+  // V/E/F/chi over exactly what the two layers describe right now, hiding
+  // included: a non-local edge or face is a genuine part of the visible
+  // subset's own triangulation, not a lesser kind of one, so it counts.
+  //
+  // E is the face tiling's own edge set - the boundaries of faceCandidates -
+  // because that, not the drawn edge set, is the 1-skeleton chi is about. The
+  // two differ because the edge and face layers are independent heuristics
+  // (EDGE_C's ratio test vs. faces.js's coplanarity tolerance) and disagree
+  // in both directions:
+  //   - a tiling edge EDGE_C rejected, still drawn as a face boundary. These
+  //     are the amber "+n" the table reports, since silently omitting them
+  //     would put chi above 2 and read as broken topology on a surface that
+  //     is in fact perfectly closed.
+  //   - an accepted edge running *through* a merged face (a quadrilateral
+  //     whose diagonal was short enough to survive the ratio test). Rare -
+  //     one edge, in a handful of pre-convergence configurations across a
+  //     493-case sweep - and excluded here, being drawn but not an edge of
+  //     the surface.
+  // Sweeping N=1..100 x 5 relaxation stages x every degree-hiding subset,
+  // chi came out 2 for all 493 cases with at least 4 visible points; below
+  // that there's no hull and so no closed surface to have a chi of 2.
+  let tilingEdges = 0, filteredEdges = 0;
+  const boundarySeen = new Set();
+  for (const face of faceCandidates) {
+    const vs = face.vertices;
+    for (let k = 0; k < vs.length; k++) {
+      const a = vs[k], b = vs[(k + 1) % vs.length];
+      const key = a < b ? `${a},${b}` : `${b},${a}`;
+      if (boundarySeen.has(key)) continue;
+      boundarySeen.add(key);
+      if (edgeKeys.has(key)) tilingEdges++; else filteredEdges++;
+    }
+  }
+  state._counts = {
+    V: visibleIdx ? visibleIdx.length : n,
+    E: tilingEdges,
+    EFiltered: filteredEdges,
+    F: faceCandidates.length,
+  };
+
   let edgePaths = [];
   if (state.edgesVisible === "show") {
-    const trueEdgeKeys = new Set();
-    const edgeDescs = [];
-    for (const [a, b] of edgeList) {
-      if (isHidden[a] || isHidden[b]) continue;
-      trueEdgeKeys.add(a + "," + b);
-      edgeDescs.push({ i: a, j: b, nonLocal: false });
-    }
-    // Non-local edges: rerun Delaunay+EDGE_C on just the surviving (visible)
-    // points, so hiding away everything but e.g. the pentagonal defects
-    // reveals *their own* triangulation - a fresh local r0 among just those
-    // points - rather than only ever showing the true graph with some
-    // edges erased. These are real, physically-interacting pairs (the
-    // underlying Riesz/log potential has no notion of a triangulation) -
-    // "non-local" just means excluded from the visible subset's Delaunay
-    // graph, not that the interaction itself is any less real. Only kept
-    // when they don't already coincide with a true edge already drawn.
-    if (visibleIdx && visibleIdx.length >= 2) {
-      const subPts = visibleIdx.map((i) => state.points[i]);
-      const { edges: subEdges } = computeEdgesForPoints(subPts);
-      for (const [sa, sb] of subEdges) {
-        const a = visibleIdx[sa], b = visibleIdx[sb];
-        const lo = Math.min(a, b), hi = Math.max(a, b);
-        if (!trueEdgeKeys.has(`${lo},${hi}`)) edgeDescs.push({ i: lo, j: hi, nonLocal: true });
-      }
-    }
-    edgePaths = computeEdgeScreenPaths(edgeDescs, cx, cy, scale);
+    edgePaths = computeEdgeScreenPaths(edgeCandidates, cx, cy, scale);
     drawEdges(ctx, edgePaths);
   }
 

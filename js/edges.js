@@ -32,7 +32,15 @@
 // The sqrt(2) ceiling recurs because it's a pure Euclidean fact (a square's
 // diagonal is always sqrt(2) times its side) independent of p, N, or energy -
 // it shows up whenever the hull has a square face (N=6, N=8, ...).
-const EDGE_C = 1.3;
+//
+// Sitting at 1.35 rather than mid-range: every "need c >=" bound above is
+// comfortably cleared either way, so the only thing the lower half of the
+// window buys is a wider margin on constraints that aren't binding, while the
+// cost of being too low is real - a hull edge cut here is still drawn as a
+// face boundary by faces.js (which has its own, independent coplanarity
+// rule), which is exactly the filtered-edge count the Geometry table
+// reports. 1.35 keeps a ~4.7% margin under the hard sqrt(2) ceiling.
+const EDGE_C = 1.35;
 
 function pointDist(pts, i, j) {
   const dx = pts[i][0] - pts[j][0], dy = pts[i][1] - pts[j][1], dz = pts[i][2] - pts[j][2];

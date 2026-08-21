@@ -74,7 +74,7 @@
       </div>
     </div>
 
-    <div class="control" title="How both layers are drawn, whichever of them is shown. Chords: straight edges and flat polygon faces, i.e. the inscribed polytope. Arcs: great-circle edges and spherical patch faces, i.e. a tiling of the sphere's own surface.">
+    <div class="control" title="How both layers are drawn, whichever of them is shown &mdash; the inscribed polytope (chords) or a tiling of the sphere's own surface (arcs).">
       <label>Shape</label>
       <div class="segmented" id="shapeSegmented">
         <button class="seg active" data-shape="chords">Chords</button>
@@ -99,7 +99,7 @@
         <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
         <span class="canvas-control-label" id="zoomVal">100%</span>
       </div>
-      <div class="canvas-control-row" title="Sphere opacity - how much rear vertices/edges/faces fade and shrink relative to front ones. Transparent (0%) shows everything equally; opaque (100%) fully blocks directly-rear elements">
+      <div class="canvas-control-row" title="Sphere opacity &mdash; how much rear vertices, edges and faces fade and shrink relative to front ones">
         <svg class="canvas-control-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="12" height="12" rx="1.5"></rect>
           <rect x="9" y="9" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"></rect>
@@ -114,15 +114,15 @@
   <div id="statsPanel" class="panel panel-right">
     <div class="section-title">Statistics</div>
     <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
-    <div class="stat" title="The Riesz energy being minimized. Shown as its natural logarithm once the energy itself exceeds what double precision can represent (very large p)."><span id="energyLabel">Energy</span> <span class="v" id="energyVal">&mdash;</span></div>
-    <div class="stat" title="Largest net force on any vertex. Switches to dimensionless relative units above p=64, where the physical force overflows double precision."><span id="forceLabel">Max force</span> <span class="v" id="forceVal">&mdash;</span></div>
-    <div class="stat" title="Scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Unlike max force, this means the same thing at every p.">Residual <span class="v" id="residualVal">&mdash;</span></div>
-    <div class="stat" title="Angular separation of the closest pair. This is the quantity the Tammes problem maximizes, and what p &rarr; &infin; converges toward.">Min separation <span class="v" id="minSepVal">&mdash;</span></div>
+    <div class="stat" title="The Riesz energy being minimized, shown as its logarithm once it outgrows double precision."><span id="energyLabel">Energy</span> <span class="v" id="energyVal">&mdash;</span></div>
+    <div class="stat" title="Largest net force on any vertex. Not comparable between different p; see the info window."><span id="forceLabel">Max force</span> <span class="v" id="forceVal">&mdash;</span></div>
+    <div class="stat" title="Scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Means the same thing at every p.">Residual <span class="v" id="residualVal">&mdash;</span></div>
+    <div class="stat" title="Angular separation of the closest pair &mdash; the quantity the Tammes problem maximizes.">Min separation <span class="v" id="minSepVal">&mdash;</span></div>
 
     <div class="section-title section-title-spaced">Geometry</div>
-    <div class="euler-row" title="Vertices, edges and merged faces of the current triangulation, and the Euler characteristic V &minus; E + F. A closed surface gives &chi;=2; anything higher counts face-boundary edges that the edge filter has dropped, so it doubles as a consistency check between the two layers. Always the full point set &mdash; hiding vertices doesn't affect it.">
+    <div class="euler-row" title="Vertices, edges and faces currently drawn, and the Euler characteristic V &minus; E + F. An amber &plus;n on E counts face-boundary edges the edge filter rejected; see the info window for the details.">
       <div class="euler-cell"><span class="euler-label">V</span><span class="euler-value" id="countV">&mdash;</span></div>
-      <div class="euler-cell"><span class="euler-label">E</span><span class="euler-value" id="countE">&mdash;</span></div>
+      <div class="euler-cell"><span class="euler-label">E</span><span class="euler-value"><span id="countE">&mdash;</span><span class="euler-filtered" id="countEFiltered"></span></span></div>
       <div class="euler-cell"><span class="euler-label">F</span><span class="euler-value" id="countF">&mdash;</span></div>
       <div class="euler-cell"><span class="euler-label">&chi;</span><span class="euler-value" id="countChi">&mdash;</span></div>
     </div>
@@ -137,7 +137,7 @@
     <div class="chart-title" id="energyChartTitle">Energy vs. step</div>
     <canvas id="energyChart" class="chart-canvas"></canvas>
 
-    <div class="chart-title chart-title-spaced" title="The scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Charted instead of max force because it is comparable between runs at different p, where max force is not - its own units grow like e^p.">Residual vs. step (log)</div>
+    <div class="chart-title chart-title-spaced" title="Charted instead of max force because it is comparable across p, where max force is not; see the info window.">Residual vs. step (log)</div>
     <canvas id="residualChart" class="chart-canvas"></canvas>
 
     <div class="credit">
@@ -150,14 +150,20 @@
 <div id="infoOverlay" class="overlay hidden">
   <div class="modal">
     <div class="modal-header">
-      <div class="tabs" id="infoTabs">
-        <button class="tab active" data-tab="energy" type="button">Energy</button>
-        <button class="tab" data-tab="edges" type="button">Edges</button>
-        <button class="tab" data-tab="controls" type="button">Controls</button>
-      </div>
+      <div class="modal-title">Help</div>
       <button id="infoClose" class="icon-btn" type="button" aria-label="Close">&times;</button>
     </div>
-    <div class="modal-body">
+    <div class="modal-main">
+      <nav class="modal-nav" id="infoNav">
+        <button class="nav-item active" data-tab="energy" type="button">The energy</button>
+        <button class="nav-item" data-tab="convergence" type="button">Convergence</button>
+        <button class="nav-item" data-tab="vertices" type="button">Vertices</button>
+        <button class="nav-item" data-tab="edges" type="button">Edges</button>
+        <button class="nav-item" data-tab="faces" type="button">Faces</button>
+        <button class="nav-item" data-tab="counts" type="button">V, E, F, &chi;</button>
+        <button class="nav-item" data-tab="controls" type="button">View controls</button>
+      </nav>
+      <div class="modal-body">
       <div class="tab-panel active" data-tab="energy">
         <p>
           The simulation minimizes E(x) = &sum;<sub>i&lt;j</sub> ||x<sub>i</sub> &minus;
@@ -193,32 +199,33 @@
           isn't yet wired up to drive the simulation (Play is disabled for it).
         </p>
       </div>
-      <div class="tab-panel" data-tab="edges">
+      <div class="tab-panel" data-tab="convergence">
         <p>
-          Edges come from the 3D convex hull of the points &mdash; since every
-          point sits exactly on the unit sphere, the hull's triangular faces
-          <i>are</i> the spherical Delaunay triangulation, independent of the
-          metric setting above.
+          <b>Energy</b> is the quantity being minimized. It switches to its natural
+          logarithm once the energy itself outgrows what double precision can
+          represent, which happens well before the top of the p slider.
         </p>
         <p>
-          A raw hull is always triangles, so a genuine square face (e.g. the
-          square antiprism's top and bottom at N=8) comes back as two
-          triangles split by an arbitrary diagonal. Each vertex drops any
-          incident hull edge longer than 1.3&times; its own shortest edge,
-          which erases exactly that spurious diagonal without touching real
-          edges.
+          <b>Max force</b> is the largest net force on any single vertex &mdash; the
+          most physically direct reading, but not a portable one, because the force's
+          own units grow roughly like e<sup>p</sup>. Above p=64 even that overflows,
+          so it switches to dimensionless relative units.
+        </p>
+        <p>
+          <b>Residual</b> is the scale-free alternative: the largest per-vertex
+          gradient of (1/p)&middot;log E, the objective actually being descended.
+          It means the same thing at every p, which is why it and not max force is
+          the charted convergence measure. The two coincide at p=0, and agree to
+          within rounding above p=64 where max force is already normalized; in
+          between, max force spans some 26 decades at p=25 and plateaus around 1e+3
+          on a converged run, which reads as a stall when nothing is stalling.
+        </p>
+        <p>
+          <b>Min separation</b> is the angular distance of the closest pair. It's the
+          quantity the Tammes problem maximizes, and what large p converges toward.
         </p>
       </div>
-      <div class="tab-panel" data-tab="controls">
-        <p>
-          Drag on the sphere to rotate the view; the zoom slider (top right of the
-          canvas) scales the view about its centre only, with no panning.
-        </p>
-        <p>
-          N, p, seed, and animation speed can all be changed live, whether paused or
-          playing. Reset re-seeds the initial configuration from a fresh random draw
-          using the current N and seed.
-        </p>
+      <div class="tab-panel" data-tab="vertices">
         <p>
           Each point is coloured by its current tension, from pale (settled) through
           mint, yellow, and orange to red (still moving fast), fading toward the
@@ -236,38 +243,65 @@
           it through three states: normal, highlighted (rings every vertex of
           that degree in yellow), and hidden (removes them from view entirely,
           display-only &mdash; the simulation underneath is unaffected).
-          Hiding everything but a defect degree (e.g. the 12 isolated 5-fold
-          points on a large, otherwise 6-fold relaxed mesh) also reveals a
-          second, dashed set of edges: the triangulation of just the points
-          still visible, so their own global arrangement becomes visible
-          instead of a lattice with holes in it. These "non-local" edges are
-          just as real and physically interacting as any other &mdash; they're
-          simply not part of the Delaunay triangulation over the currently-
-          visible points &mdash; so hovering one reports its force exactly
-          like any other edge.
         </p>
+        <p>
+          Hiding is more than erasure: with anything hidden, both the edge and face
+          layers are recomputed over just the surviving points and the extra
+          structure that reveals is drawn dashed. Keep only a defect degree (say the
+          12 isolated 5-fold points on a large otherwise-6-fold mesh) and you get
+          <i>their</i> own triangulation, showing how they sit relative to each
+          other, rather than a lattice with holes punched in it. Dashed doesn't mean
+          less real: the underlying potential has no notion of a triangulation at
+          all, so a dashed "non-local" edge is an ordinary interacting pair and
+          hovering it reports its force like any other.
+        </p>
+      </div>
+      <div class="tab-panel" data-tab="edges">
+        <p>
+          Edges come from the 3D convex hull of the points &mdash; since every
+          point sits exactly on the unit sphere, the hull's triangular faces
+          <i>are</i> the spherical Delaunay triangulation, independent of the
+          metric setting.
+        </p>
+        <p>
+          A raw hull is always triangles, so a genuine square face (e.g. the
+          square antiprism's top and bottom at N=8) comes back as two
+          triangles split by an arbitrary diagonal. Each vertex therefore drops any
+          incident hull edge longer than 1.35&times; its own shortest edge,
+          which erases exactly that spurious diagonal without touching real
+          edges.
+        </p>
+        <p>
+          That 1.35 has hard limits either side. A square's diagonal is always
+          exactly &radic;2 &asymp; 1.4142 times its side, whatever p or N, so the
+          constant has to stay below &radic;2 or the diagonals it exists to remove
+          survive; and it has to stay above about 1.25, the largest ratio a genuine
+          edge is known to reach, or real edges start disappearing. Filtered edges
+          (see V, E, F, &chi;) are the cost of the remaining margin.
+        </p>
+      </div>
+      <div class="tab-panel" data-tab="faces">
         <p>
           Faces are a separate, purely visual layer: adjacent hull triangles
           whose outward normals are nearly parallel (within ~1.8&deg;) are
           merged into a single flat n-gon, named Triangle/Quadrilateral/
           Pentagon/&hellip; up to Icosagon (20 sides) and "N-gon" beyond,
-          colour-coded consistently across the app. The left panel's Faces
-          Hide/Show control is the master switch for the whole layer
-          (hidden by default, so the generic triangle soup stays out of the
-          way until asked for); the statistics panel's "Faces by side
-          count" list is finer-grained, letting you dim out individual side
-          counts (e.g. hide triangles but keep pentagons) once the master
-          switch is on. That per-side-count choice persists independently
-          of the master switch, so toggling Hide/Show never forgets which
-          categories you'd already suppressed. The Shape control decides how
-          both layers are drawn: "Arcs" gives great-circle edges and face
-          boundaries, so a shown face reads as a genuine tile on the
-          sphere's surface, while "Chords" gives straight edges and flat
-          polygon faces &mdash; the inscribed polytope. Early in a run, or for a generically asymmetric
-          configuration, adjacent triangles almost never share an exact
-          plane, so nothing merges &mdash; genuine flat faces (if the
-          configuration has any) only appear once the system has relaxed
-          close enough to a symmetric equilibrium.
+          colour-coded consistently across the app.
+        </p>
+        <p>
+          Early in a run, or for a generically asymmetric configuration, adjacent
+          triangles almost never share an exact plane, so nothing merges &mdash;
+          genuine flat faces (if the configuration has any) only appear once the
+          system has relaxed close enough to a symmetric equilibrium.
+        </p>
+        <p>
+          The left panel's Faces Hide/Show control is the master switch for the
+          whole layer, hidden by default so the generic triangle soup stays out of
+          the way until asked for. The statistics panel's "Faces by side count"
+          list is finer-grained, letting you suppress individual side counts (e.g.
+          hide triangles but keep pentagons) once the master switch is on. That
+          per-side-count choice persists independently, so toggling Hide/Show never
+          forgets which categories you'd already dismissed.
         </p>
         <p>
           Hiding vertices affects faces the same way it affects edges: a
@@ -277,6 +311,59 @@
           that wouldn't exist while the rest of the mesh was still there to
           subdivide it.
         </p>
+      </div>
+      <div class="tab-panel" data-tab="counts">
+        <p>
+          The Geometry table counts the vertices, edges and faces currently
+          described, and their Euler characteristic V &minus; E + F. Any closed
+          surface gives &chi;=2, so it doubles as a check that the two layers
+          agree. Everything in it follows hiding: a non-local edge or face belongs
+          to the visible subset's own triangulation just as legitimately as a
+          local one does, so it counts. Below four visible points there's no hull,
+          no closed surface, and &chi; falls short of 2 accordingly.
+        </p>
+        <p>
+          E is the face tiling's edge count, and an amber <b>+n</b> beside it means
+          n of those edges were rejected by the 1.35&times; filter and so aren't
+          drawn. Nothing is wrong when this appears: the edge and face layers apply
+          independent tests (a length ratio versus a coplanarity tolerance) and can
+          reach different verdicts about a single edge. Counting only the accepted
+          ones would push &chi; above 2 and suggest torn topology on a surface
+          that is in fact perfectly closed, so the table names the discrepancy
+          instead of hiding it.
+        </p>
+        <p>
+          It is most visible during the chaotic early transient, where a vertex's
+          shortest edge swings around enough for the ratio test to cut
+          aggressively; a converged configuration typically has none at all, and a
+          handful at most.
+        </p>
+      </div>
+      <div class="tab-panel" data-tab="controls">
+        <p>
+          Drag on the sphere to rotate the view. The zoom slider, top right of the
+          canvas, scales the view about its centre only, with no panning.
+        </p>
+        <p>
+          Below it, sphere opacity sets how much rear vertices, edges and faces
+          fade and shrink relative to front ones. Fully transparent shows
+          everything equally; fully opaque means the sphere genuinely blocks
+          whatever is directly behind it, rather than merely dimming it.
+        </p>
+        <p>
+          The <b>Shape</b> control decides how both the edge and face layers are
+          drawn, whichever of them is shown. Chords gives straight edges and flat
+          polygon faces &mdash; the inscribed polytope. Arcs gives great-circle
+          edges and spherical patch faces, so a shown face reads as a genuine tile
+          on the sphere's own surface. It's independent of the Metric setting,
+          which governs the physics rather than the drawing.
+        </p>
+        <p>
+          N, p, seed, and animation speed can all be changed live, whether paused or
+          playing. Reset re-seeds the initial configuration from a fresh random draw
+          using the current N and seed.
+        </p>
+      </div>
       </div>
     </div>
   </div>

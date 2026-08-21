@@ -74,6 +74,7 @@ const residualVal = document.getElementById("residualVal");
 const minSepVal = document.getElementById("minSepVal");
 const countV = document.getElementById("countV");
 const countE = document.getElementById("countE");
+const countEFiltered = document.getElementById("countEFiltered");
 const countF = document.getElementById("countF");
 const countChi = document.getElementById("countChi");
 const degreeHistogramEl = document.getElementById("degreeHistogram");
@@ -182,8 +183,9 @@ resetBtn.addEventListener("click", () => {
 const infoBtn = document.getElementById("infoBtn");
 const infoClose = document.getElementById("infoClose");
 const infoOverlay = document.getElementById("infoOverlay");
-const infoTabButtons = document.querySelectorAll("#infoTabs .tab");
+const infoNavButtons = document.querySelectorAll("#infoNav .nav-item");
 const infoPanels = document.querySelectorAll(".tab-panel");
+const infoBody = document.querySelector(".modal-body");
 
 infoBtn.addEventListener("click", () => infoOverlay.classList.remove("hidden"));
 infoClose.addEventListener("click", () => infoOverlay.classList.add("hidden"));
@@ -193,11 +195,14 @@ infoOverlay.addEventListener("click", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") infoOverlay.classList.add("hidden");
 });
-infoTabButtons.forEach((btn) => {
+infoNavButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    infoTabButtons.forEach((b) => b.classList.remove("active"));
+    infoNavButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     infoPanels.forEach((p) => p.classList.toggle("active", p.dataset.tab === btn.dataset.tab));
+    // All panels share one scroll container, so without this a new section
+    // would open already scrolled to wherever the previous one was left.
+    infoBody.scrollTop = 0;
   });
 });
 
@@ -216,25 +221,19 @@ infoTabButtons.forEach((btn) => {
 // mousedown+mouseup pair on the *same* element, but the element under the
 // cursor was being destroyed and replaced with a fresh one before the
 // mouseup ever landed, so the browser never synthesized a "click" at all.
-// V/E/F/chi for the current triangulation. Reads the true full-point-set
-// structures render.js exposes, so the counts describe a closed surface and
-// chi is meaningful; hiding vertices deliberately doesn't move them.
-//
-// chi is not always 2, and the deviation is exactly informative rather than a
-// glitch: measured against the face layer, chi - 2 equals the number of
-// face-boundary edges the EDGE_C ratio filter has dropped (verified at N=20,
-// chi=5 with 3 dropped, and N=100, chi=14 with 12 dropped, both fully
-// converged). It runs high through the chaotic early transient, where a
-// vertex's local r0 varies wildly enough for the filter to cut aggressively,
-// and settles to 2 for most N once relaxed.
+// V/E/F/chi for whatever the two geometry layers currently describe, hiding
+// included - render.js does the counting (it already holds both candidate
+// sets); this only formats. E reads "accepted +filtered", the second term in
+// amber and omitted when zero, and chi is taken over their union so a closed
+// surface always reports 2. See render.js for why the split is needed at all.
 function updateGeometryCounts() {
-  const V = state.points.length;
-  const E = state._edgeList ? state._edgeList.length : 0;
-  const F = state._faceList ? state._faceList.length : 0;
-  countV.textContent = V;
-  countE.textContent = E;
-  countF.textContent = F;
-  const chi = V - E + F;
+  const c = state._counts;
+  if (!c) return;
+  countV.textContent = c.V;
+  countE.textContent = c.E;
+  countEFiltered.textContent = c.EFiltered > 0 ? `+${c.EFiltered}` : "";
+  countF.textContent = c.F;
+  const chi = c.V - (c.E + c.EFiltered) + c.F;
   countChi.textContent = chi;
   countChi.classList.toggle("euler-off", chi !== 2);
 }
