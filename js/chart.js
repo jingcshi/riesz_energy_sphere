@@ -138,14 +138,26 @@ function drawEnergyChart() {
   renderChart(energyChartCanvas, energyChartCtx, hist, (pt) => (useLog ? pt.logEnergy : pt.energy), { color: "#58a6ff" });
 }
 
-// ---------- max-force-vs-step chart ----------
-// Log scale: maxForce decays across many orders of magnitude as the system
-// settles (that's the whole point of the "converged" state), so a linear
-// axis would flatten the last, most interesting 99% of the run into a line
-// hugging zero.
-const forceChartCanvas = document.getElementById("forceChart");
-const { ctx: forceChartCtx, resize: resizeForceChart } = setupChartCanvas(forceChartCanvas);
+// ---------- residual-vs-step chart ----------
+// Log scale: the residual decays across many orders of magnitude as the
+// system settles (that's the whole point of the "converged" state), so a
+// linear axis would flatten the last, most interesting 99% of the run into a
+// line hugging zero.
+//
+// This replaced a max-force chart, which was redundant with it and worse
+// where it wasn't. The two are the same number at p=0 and (to within
+// rounding) at every p>64, where max force is already reported in these same
+// normalized units; at p=1 they differ by a near-constant factor, so the
+// curves had identical shape and merely different axis labels. They diverge
+// only around p=6..64 - and there max force is the poorer chart, spanning 26
+// decades at p=25 (unreadable on a 5-gridline axis) and plateauing near 1e+3
+// on a fully converged run, which reads as a stall. The dimensional force is
+// still worth a number in the Statistics panel; it just wasn't worth a chart.
+// Floored at 1e-14 because a converged low-p run reaches ~1e-9 here, well
+// inside what the old 1e-9 floor would have clipped away.
+const residualChartCanvas = document.getElementById("residualChart");
+const { ctx: residualChartCtx, resize: resizeResidualChart } = setupChartCanvas(residualChartCanvas);
 
-function drawForceChart() {
-  renderChart(forceChartCanvas, forceChartCtx, state._energyHistory, (pt) => pt.maxForce, { color: "#ffa657", log: true, floor: 1e-9 });
+function drawResidualChart() {
+  renderChart(residualChartCanvas, residualChartCtx, state._energyHistory, (pt) => pt.residual, { color: "#a5d6ff", log: true, floor: 1e-14 });
 }

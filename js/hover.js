@@ -169,7 +169,7 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
     const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
     const arcAngleDeg = Math.acos(dot) * 180 / Math.PI;
     let length;
-    if (state.edgeStyle === "arcs") {
+    if (state.shapeStyle === "arcs") {
       length = Math.acos(dot);
     } else {
       const dx = u[0] - v[0], dy = u[1] - v[1], dz = u[2] - v[2];

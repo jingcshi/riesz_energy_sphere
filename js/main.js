@@ -72,10 +72,15 @@ const forceVal = document.getElementById("forceVal");
 const forceLabel = document.getElementById("forceLabel");
 const residualVal = document.getElementById("residualVal");
 const minSepVal = document.getElementById("minSepVal");
+const countV = document.getElementById("countV");
+const countE = document.getElementById("countE");
+const countF = document.getElementById("countF");
+const countChi = document.getElementById("countChi");
 const degreeHistogramEl = document.getElementById("degreeHistogram");
 const faceHistogramEl = document.getElementById("faceHistogram");
-const edgeButtons = document.querySelectorAll("#edgeSegmented .seg");
+const edgeVisButtons = document.querySelectorAll("#edgeVisSegmented .seg");
 const faceVisButtons = document.querySelectorAll("#faceVisSegmented .seg");
+const shapeButtons = document.querySelectorAll("#shapeSegmented .seg");
 const metricButtons = document.querySelectorAll("#metricSegmented .seg");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomVal = document.getElementById("zoomVal");
@@ -125,11 +130,11 @@ speedSlider.addEventListener("input", () => {
   state.speed = parseFloat(speedSlider.value);
   speedVal.textContent = state.speed.toFixed(1) + "\u00d7";
 });
-edgeButtons.forEach((btn) => {
+edgeVisButtons.forEach((btn) => {
   btn.addEventListener("click", () => {
-    edgeButtons.forEach((b) => b.classList.remove("active"));
+    edgeVisButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    state.edgeStyle = btn.dataset.style;
+    state.edgesVisible = btn.dataset.vis;
   });
 });
 faceVisButtons.forEach((btn) => {
@@ -137,6 +142,13 @@ faceVisButtons.forEach((btn) => {
     faceVisButtons.forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     state.facesVisible = btn.dataset.vis;
+  });
+});
+shapeButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    shapeButtons.forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.shapeStyle = btn.dataset.shape;
   });
 });
 metricButtons.forEach((btn) => {
@@ -204,6 +216,29 @@ infoTabButtons.forEach((btn) => {
 // mousedown+mouseup pair on the *same* element, but the element under the
 // cursor was being destroyed and replaced with a fresh one before the
 // mouseup ever landed, so the browser never synthesized a "click" at all.
+// V/E/F/chi for the current triangulation. Reads the true full-point-set
+// structures render.js exposes, so the counts describe a closed surface and
+// chi is meaningful; hiding vertices deliberately doesn't move them.
+//
+// chi is not always 2, and the deviation is exactly informative rather than a
+// glitch: measured against the face layer, chi - 2 equals the number of
+// face-boundary edges the EDGE_C ratio filter has dropped (verified at N=20,
+// chi=5 with 3 dropped, and N=100, chi=14 with 12 dropped, both fully
+// converged). It runs high through the chaotic early transient, where a
+// vertex's local r0 varies wildly enough for the filter to cut aggressively,
+// and settles to 2 for most N once relaxed.
+function updateGeometryCounts() {
+  const V = state.points.length;
+  const E = state._edgeList ? state._edgeList.length : 0;
+  const F = state._faceList ? state._faceList.length : 0;
+  countV.textContent = V;
+  countE.textContent = E;
+  countF.textContent = F;
+  const chi = V - E + F;
+  countChi.textContent = chi;
+  countChi.classList.toggle("euler-off", chi !== 2);
+}
+
 let _degreeHistogramSig = null;
 function updateDegreeHistogram() {
   const degree = state._degree || [];
@@ -350,10 +385,11 @@ function tick() {
   minSepVal.textContent = Number.isFinite(state._minSeparation)
     ? (state._minSeparation * 180 / Math.PI).toFixed(3) + "\u00b0"
     : "\u2014";
+  updateGeometryCounts();
   updateDegreeHistogram();
   updateFaceHistogram();
   drawEnergyChart();
-  drawForceChart();
+  drawResidualChart();
   requestAnimationFrame(tick);
 }
 
@@ -370,6 +406,6 @@ state.sphereOpacity = parseFloat(opacitySlider.value) / 100;
 updatePInfinityUI();
 resizeCanvas();
 resizeEnergyChart();
-resizeForceChart();
+resizeResidualChart();
 resetConfiguration();
 requestAnimationFrame(tick);

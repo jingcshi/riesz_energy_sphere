@@ -113,15 +113,14 @@ function faceStrokeColor(sides) {
   return `rgba(${r}, ${g}, ${b}, 0.85)`;
 }
 
-// Builds a face's projected screen-space boundary path. In "arcs" edge
-// style, each side is subdivided into great-circle-arc segments (same
+// Builds a face's projected screen-space boundary path. In the "arcs" shape
+// style, each side is subdivided into great-circle-arc segments (the same
 // slerp machinery edges.js uses) so the polygon renders as a genuine
-// spherical tile bulging along the sphere's surface, rather than the flat
-// polytope chord a straight line between two vertices would draw; "lines"
-// and "none" styles keep the flat polytope face, matching how the edge
-// layer itself only curves in "arcs" mode.
+// spherical tile bulging along the sphere's surface; "chords" keeps the flat
+// polytope facet a straight line between two vertices would draw. One
+// setting drives both layers, so an arc-edged shape can't have flat faces.
 function buildFacePath(vertexIdxs, cx, cy, scale) {
-  const useArcs = state.edgeStyle === "arcs";
+  const useArcs = state.shapeStyle === "arcs";
   const m = vertexIdxs.length;
   const path = [];
   for (let k = 0; k < m; k++) {
@@ -281,6 +280,12 @@ function draw() {
   // "Faces by side count" panel, so the generic triangle soup (especially
   // pre-convergence) stays invisible by default.
   const faceList = computeFaces();
+  // Exposed for the V/E/F/chi table, which pairs it with state._edgeList
+  // above. Both are the true full-point-set structures, deliberately not the
+  // post-hiding candidate sets below: Euler's formula describes a closed
+  // surface, and hiding vertices is a display-only operation that would tear
+  // holes in it and make chi meaningless.
+  state._faceList = faceList;
 
   const faceCandidates = [];
   const localFaceKeys = new Set();
@@ -346,7 +351,7 @@ function draw() {
   }
 
   let edgePaths = [];
-  if (state.edgeStyle !== "none") {
+  if (state.edgesVisible === "show") {
     const trueEdgeKeys = new Set();
     const edgeDescs = [];
     for (const [a, b] of edgeList) {

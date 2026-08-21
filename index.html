@@ -60,10 +60,9 @@
 
     <div class="control">
       <label>Edges</label>
-      <div class="segmented" id="edgeSegmented">
-        <button class="seg active" data-style="none">None</button>
-        <button class="seg" data-style="lines">Lines</button>
-        <button class="seg" data-style="arcs">Arcs</button>
+      <div class="segmented" id="edgeVisSegmented">
+        <button class="seg active" data-vis="hide">Hide</button>
+        <button class="seg" data-vis="show">Show</button>
       </div>
     </div>
 
@@ -72,6 +71,14 @@
       <div class="segmented" id="faceVisSegmented">
         <button class="seg active" data-vis="hide">Hide</button>
         <button class="seg" data-vis="show">Show</button>
+      </div>
+    </div>
+
+    <div class="control" title="How both layers are drawn, whichever of them is shown. Chords: straight edges and flat polygon faces, i.e. the inscribed polytope. Arcs: great-circle edges and spherical patch faces, i.e. a tiling of the sphere's own surface.">
+      <label>Shape</label>
+      <div class="segmented" id="shapeSegmented">
+        <button class="seg active" data-shape="chords">Chords</button>
+        <button class="seg" data-shape="arcs">Arcs</button>
       </div>
     </div>
 
@@ -113,7 +120,14 @@
     <div class="stat" title="Angular separation of the closest pair. This is the quantity the Tammes problem maximizes, and what p &rarr; &infin; converges toward.">Min separation <span class="v" id="minSepVal">&mdash;</span></div>
 
     <div class="section-title section-title-spaced">Geometry</div>
-    <div class="chart-title">Vertices by degree &mdash; click to cycle highlight / hide</div>
+    <div class="euler-row" title="Vertices, edges and merged faces of the current triangulation, and the Euler characteristic V &minus; E + F. A closed surface gives &chi;=2; anything higher counts face-boundary edges that the edge filter has dropped, so it doubles as a consistency check between the two layers. Always the full point set &mdash; hiding vertices doesn't affect it.">
+      <div class="euler-cell"><span class="euler-label">V</span><span class="euler-value" id="countV">&mdash;</span></div>
+      <div class="euler-cell"><span class="euler-label">E</span><span class="euler-value" id="countE">&mdash;</span></div>
+      <div class="euler-cell"><span class="euler-label">F</span><span class="euler-value" id="countF">&mdash;</span></div>
+      <div class="euler-cell"><span class="euler-label">&chi;</span><span class="euler-value" id="countChi">&mdash;</span></div>
+    </div>
+
+    <div class="chart-title chart-title-spaced">Vertices by degree &mdash; click to cycle highlight / hide</div>
     <div id="degreeHistogram" class="degree-histogram"></div>
 
     <div class="chart-title chart-title-spaced">Faces by side count &mdash; click to show / hide</div>
@@ -123,8 +137,8 @@
     <div class="chart-title" id="energyChartTitle">Energy vs. step</div>
     <canvas id="energyChart" class="chart-canvas"></canvas>
 
-    <div class="chart-title chart-title-spaced">Max force vs. step (log)</div>
-    <canvas id="forceChart" class="chart-canvas"></canvas>
+    <div class="chart-title chart-title-spaced" title="The scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Charted instead of max force because it is comparable between runs at different p, where max force is not - its own units grow like e^p.">Residual vs. step (log)</div>
+    <canvas id="residualChart" class="chart-canvas"></canvas>
 
     <div class="credit">
       Jingchuan Shi + Claude
@@ -245,11 +259,11 @@
           counts (e.g. hide triangles but keep pentagons) once the master
           switch is on. That per-side-count choice persists independently
           of the master switch, so toggling Hide/Show never forgets which
-          categories you'd already suppressed. In "Arcs" edge style, face
-          boundaries are drawn as great-circle arcs too, so a shown face
-          reads as a genuine tile on the sphere's surface rather than a
-          flat polytope facet; in "Lines"/"None" style they're drawn as
-          flat polygons. Early in a run, or for a generically asymmetric
+          categories you'd already suppressed. The Shape control decides how
+          both layers are drawn: "Arcs" gives great-circle edges and face
+          boundaries, so a shown face reads as a genuine tile on the
+          sphere's surface, while "Chords" gives straight edges and flat
+          polygon faces &mdash; the inscribed polytope. Early in a run, or for a generically asymmetric
           configuration, adjacent triangles almost never share an exact
           plane, so nothing merges &mdash; genuine flat faces (if the
           configuration has any) only appear once the system has relaxed

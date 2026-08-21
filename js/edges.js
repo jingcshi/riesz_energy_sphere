@@ -139,7 +139,7 @@ function computeEdgeScreenPaths(edges, cx, cy, scale) {
     const pb = project(vRot, cx, cy, scale);
 
     let path;
-    if (state.edgeStyle === "arcs") {
+    if (state.shapeStyle === "arcs") {
       const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
       const omega = Math.acos(dot);
       const sinOmega = Math.sin(omega);

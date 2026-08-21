@@ -7,7 +7,14 @@ const state = {
   seed: 1,
   speed: 1.0,
   metric: "euclidean", // "euclidean" | "spherical"
-  edgeStyle: "none",   // "none" | "lines" | "arcs" - independent of `metric`
+  edgesVisible: "hide",  // "hide" | "show" - master on/off for the edge layer, mirroring facesVisible
+  // "chords" | "arcs" - how both edges *and* faces are drawn, independent of
+  // `metric` and of either layer's visibility: straight chords with flat
+  // polygon faces (the polytope reading) versus great-circle arcs with
+  // spherical patch faces (the tiling reading). Split out of the old
+  // three-way edgeStyle, which conflated this with edge visibility and left
+  // faces silently following the edge control even with edges off.
+  shapeStyle: "chords",
   playing: false,
   points: [],      // array of [x,y,z]
   step: 0,
@@ -79,7 +86,7 @@ function pushEnergyHistory() {
     step: state.step,
     energy: state.energy,
     logEnergy: state._logEnergy,
-    maxForce: state.maxForce,
+    residual: state._residual,
   });
   if (state._energyHistory.length > ENERGY_HISTORY_MAX) {
     state._energyHistory = state._energyHistory.filter((_, idx) => idx % 2 === 0);
@@ -106,7 +113,12 @@ function resetConfiguration() {
   resetConvergenceTracking();
   state._stepAccum = 0;
   computeEnergyAndForce(); // populate initial stats
-  state._energyHistory = [{ step: 0, energy: state.energy, logEnergy: state._logEnergy, maxForce: state.maxForce }];
+  state._energyHistory = [{
+    step: 0,
+    energy: state.energy,
+    logEnergy: state._logEnergy,
+    residual: state._residual,
+  }];
 }
 
 // ---------- physics: projected gradient descent on Riesz / log energy ----------
