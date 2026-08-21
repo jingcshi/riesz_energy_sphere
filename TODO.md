@@ -2,15 +2,18 @@
 
 ## On hold
 
-- **Large-N support (raise the N slider well past 100) via convex hull +
-  Barnes-Hut.** No longer purely deprioritized — per a reference survey on
-  spherical point configurations, the large-N regime is genuinely
-  interesting (icosadeltahedral meshes at
-  `N = 10T+2` for `T = h²+hk+k²`, i.e. 12, 32, 42, 72, 92, 122, 132, 162, ...;
-  and a literature-reported 5-7 disclination "scarring" crossover around
-  `N ~ 500-1000` where exact icosadeltahedral symmetry stops being optimal).
-  Reaching that range needs the Barnes-Hut piece below; the convex-hull half
-  is done (see "Done" below).
+- **Barnes-Hut for the small-`p` regime.** What remains of the large-N work.
+  The slider now reaches 1024, which covers the interesting range (the
+  icosadeltahedral meshes at `N = 10T+2` for `T = h²+hk+k²`, i.e. 12, 32, 42,
+  72, 92, 122, 132, 162, ...; and the literature-reported 5-7 disclination
+  "scarring" crossover around `N ~ 500-1000` where exact icosadeltahedral
+  symmetry stops being optimal). The hull half is cached, the large-`p` half is
+  exactly truncated, and integer/half-integer exponents no longer pay for
+  `Math.pow` (all three in "Done"), which leaves one gap: **small, non-integer
+  `p` at large N**, where nothing above applies and the sum is genuinely
+  long-range. `N=1024` at `p=2.5` costs ~7ms per pair-kernel call, ~17ms per
+  step with the line search — playable but not comfortable, and quadratic, so
+  it is the binding constraint on any future ceiling above 1024.
 
   - **Barnes-Hut spatial tree** for the force/energy sum itself, `O(N log N)`
     per step instead of `O(N²)`. Still generalizes cleanly to arbitrary `p`
@@ -26,12 +29,9 @@
     approximation's own error budget rather than assuming exact energy is
     unavoidable, before falling back to a full exact-energy accept/reject
     pass (which would erase most of the asymptotic win).
-  - **Scope it by `p` first.** The tree is only the right tool for the
-    *long-range* small-`p` regime. At large `p` the log-domain weights
-    underflow to exactly zero beyond `d_min · exp(700/p)`, so a spatial
-    cell-list cutoff there is **exact**, not approximate — no accuracy
-    tradeoff and none of the Armijo-tolerance worry above. Two different
-    accelerations for two regimes, chosen by `p`.
+  - ~~**Scope it by `p` first.**~~ Done — see "Done" below. The cutoff turned
+    out to bite only above `p ≈ 500` at `N = 1024`, since it needs
+    `exp(746/p)` to fall below the sphere's own `d_max/d_min` ratio.
   - **Measured, and the answer was "neither".** ms per call on converged
     configurations, p=1 Euclidean:
 
@@ -48,20 +48,16 @@
     independent hulls per frame — now shared and cached (see "Done"), which
     leaves the physics as the larger half. So the tree is the right next
     target after all, and the hull's own `O(N²)` is not urgent.
-  - The pair loop still allocates nothing per pair but does run twice (once
-    for the closest pair, once for the sums), and `state.points` is an
-    array-of-arrays rather than a flat `Float64Array`. A monomorphic
-    typed-array kernel may reach `N ≈ 1000` with no tree at all — try that
-    before the tree, since it's a rewrite of one function with no accuracy
-    question attached.
+  - ~~A monomorphic typed-array kernel may reach `N ≈ 1000` with no tree at
+    all.~~ Tried, and on its own it does essentially nothing — see "Done".
   - **A conflict-graph hull is probably the wrong fix even when the hull does
     start to hurt.** The textbook `O(N log N)` rebuild competes against a
     much better option: the configuration moves only slightly per step, so
     the previous frame's triangulation is almost correct, and repairing it by
     edge flips (kinetic Delaunay) is roughly `O(N)` amortized. Recomputing
     from scratch at any complexity is the thing to avoid, not the constant.
-  - Once it lands, raise the N slider max and pressure-test around the
-    reported 500-1000 crossover.
+  - Pressure-test around the reported 500-1000 crossover, now that the slider
+    goes there.
 
 - **p = ∞ (Tammes / max-min distance) limit.** Still the one slider position
   where Play is disabled, but most of the groundwork is now done and the
@@ -95,6 +91,70 @@
     row should probably read `—` and cede the spotlight to Min separation.
 
 ## Done
+
+- **N now reaches 1024**, on a slider whose stops widen with N — unit steps to
+  64, then the step doubles at each power of two (2 to 128, 4 to 256, 8 to 512,
+  16 to 1024), 192 stops in all, indexed exactly the way the p slider indexes
+  `P_VALUES`. Everything worth stepping through one point at a time is at small
+  N, and past a few hundred a single extra point is invisible, so a uniform
+  slider would spend most of its travel on distinctions nobody can see. The
+  readout beside the label is itself a number input for the values the slider
+  skips; it accepts any N in 1..1024, clamps out-of-range entries, and restores
+  the current N on an empty or unparseable one (a `number` input reports junk as
+  `""`, and `Number("") === 0`, which would otherwise collapse the
+  configuration to a single point).
+
+- **Split the pair-kernel acceleration by `p`, which is where the large-N cost
+  actually went.** Three changes, in ascending order of how much they turned
+  out to matter. Measured per `computeEnergyAndForce()` call at `N = 1024`,
+  Euclidean unless stated:
+
+  | | p=1 | p=2.5 | p=6 | p=6 spherical | p=1000 |
+  |---|---|---|---|---|---|
+  | before | 7.1 | 26.8 | 26.9 | 34.5 | 20.4 |
+  | after | 6.1 | 7.1 | 6.7 | 13.2 | 0.42 |
+
+  - **The flat `Float64Array` kernel did essentially nothing.** `state.points`
+    is now mirrored into a flat buffer per call and forces accumulate into
+    another, with the triples materialized only at the end — and at `p=1` that
+    bought about 15%, within noise of the extra call the shared per-pair
+    function costs. The premise was wrong: V8 already stores an array of
+    `[x,y,z]` arrays as packed-double elements, so the layout was never the
+    bottleneck. It is kept because the cell grid below wants flat coordinates
+    anyway, not because it is faster on its own.
+  - **`Math.pow` was the bottleneck, and most of the p slider's stops don't
+    need it.** The `p=1` vs `p=2.5` gap in the "before" row is a factor of
+    3.8 in a kernel that does exactly the same work either way — V8
+    special-cases an exponent of 1 and pays a full transcendental for anything
+    else. Since the slider is integers and halves almost everywhere,
+    `powInt` does exponentiation by squaring on `q = dMin/d ∈ (0,1]`
+    (half-integers via `sqrt(q)`), which is a handful of multiplies. That is
+    the whole of the 4× at moderate p. Restricted to `p ≤ P_PHYSICAL_MAX`,
+    partly because squaring compounds rounding by about `log2(p)` ulps and
+    partly because above there the cutoff below does the work instead.
+  - **The large-`p` cutoff is worth ~40× and is exact.** Past
+    `d_min · exp(746/p)` the relative weight `(d/dMin)^-p` is not merely small
+    but *exactly* zero in double precision, so those pairs contribute bitwise
+    nothing — to the energy, the forces and the per-point energies alike — and
+    a uniform cell grid (CSR buckets, 27-cell scan) may skip them with no
+    accuracy tradeoff and no Armijo-tolerance worry. 746 rather than 709
+    deliberately: the denormal limit, not the normal one, so the skipped terms
+    are true zeros and not `1e-320`. `N=512` at `p=1000` went from ~5ms to
+    0.5ms per step.
+
+  Two details worth remembering. The closest-pair pass can use the same grid
+  even though the cutoff isn't known until after it runs, because the minimum
+  separation has an a-priori bound: `n` disjoint caps of angular radius `θ/2`
+  have total area at most `4π`, so `n(1-cos(θ/2)) ≤ 2`, and with
+  `chord = 2sin(θ/2)` that gives `d_min ≤ 4/√n` exactly — cells that size are
+  guaranteed to hold the closest pair within adjacent cells. And the grid's
+  bookkeeping is `O(cells)`, not `O(occupied cells)`, because the prefix sum
+  sweeps all of them; a cutoff far below the minimum separation (which happens
+  when a configuration is momentarily clustered) would otherwise allocate a
+  volumetric grid vastly larger than the point set it sorts, so `cellSizeFloor`
+  caps the resolution at `max(4096, 64N)` cells. Using cells *larger* than the
+  cutoff is harmless — it only visits extra pairs, which the cutoff then finds
+  to be zeros.
 
 - **Memoized the convex hull on its point array's identity** (`_hullCache`, a
   `WeakMap` in `js/hull.js`), which needs no version counter and can't go

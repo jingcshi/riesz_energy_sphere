@@ -69,6 +69,34 @@ function buildPValues() {
   vals.push(Infinity);      // the Tammes (max-min distance) limit - see TODO.md
   return vals; // 88 total
 }
+// The N slider's stops. Unit steps to 64, then the step doubles at each power
+// of two - 2 to 128, 4 to 256, and so on to 1024. Almost everything worth
+// looking at one point at a time (the magic numbers, the defect patterns, the
+// N=5 degeneracy) lives below 64, whereas past a few hundred a single extra
+// point is invisible, so a uniform slider would spend most of its travel on
+// distinctions nobody can see. The exact-N input exists for the cases this
+// misses.
+function buildNValues() {
+  const vals = [];
+  for (let v = 1; v <= 64; v++) vals.push(v);
+  for (let step = 2, top = 128; top <= 1024; step *= 2, top *= 2) {
+    for (let v = vals[vals.length - 1] + step; v <= top; v += step) vals.push(v);
+  }
+  return vals; // 192 total
+}
+const N_VALUES = buildNValues();
+const N_MAX = N_VALUES[N_VALUES.length - 1];
+
+// Slider position for an arbitrary N, so the two controls can be kept in sync
+// when the number input lands between stops.
+function nearestNIndex(n) {
+  let best = 0;
+  for (let i = 1; i < N_VALUES.length; i++) {
+    if (Math.abs(N_VALUES[i] - n) < Math.abs(N_VALUES[best] - n)) best = i;
+  }
+  return best;
+}
+
 const P_VALUES = buildPValues();
 const P_DEFAULT_INDEX = P_VALUES.indexOf(1.0); // Coulomb/Newtonian law
 
@@ -192,6 +220,247 @@ function randomTangentAt(xi, rnd) {
   return [tx / norm, ty / norm, tz / norm];
 }
 
+// ---------- pair-kernel scratch ----------
+// state.points stays an array of [x,y,z] triples, which is what every other
+// module reads. The pair kernel below is the only O(N^2) consumer, though, and
+// paid for that layout on every one of those pairs: one pointer chase per
+// coordinate, with the three doubles of a point free to sit anywhere in the
+// heap. It mirrors the points into a flat Float64Array once per call - O(N),
+// invisible beside the pair loop - accumulates forces into another, and
+// materializes triples again only at the end.
+let _pairScratch = { n: -1 };
+
+function pairScratch(n) {
+  if (_pairScratch.n !== n) {
+    _pairScratch = {
+      n,
+      xs: new Float64Array(3 * n),
+      fx: new Float64Array(3 * n),
+      pe: new Float64Array(n),
+    };
+  }
+  return _pairScratch;
+}
+
+// ---------- uniform cell grid ----------
+// Buckets the points into a uniform 3D grid over the sphere's bounding cube,
+// in CSR form: the indices of the points in cell c are order[start[c]] up to
+// order[start[c+1]]. Cells are cubic and h on a side, so two points more than
+// one cell apart on any axis are strictly more than h apart - which is what
+// lets a caller with a cutoff of h ignore all but the 27 cells around each
+// point.
+//
+// The bookkeeping is O(cells) as well as O(N) - the prefix sum sweeps every
+// cell, occupied or not - and the cell count grows as (2/h)^3 while the points
+// only occupy a surface. A cutoff far below the minimum separation (reachable
+// when a configuration is momentarily clustered) would therefore allocate and
+// sweep a volumetric grid vastly larger than the point set it sorts. Callers
+// must pass h through cellSizeFloor to keep that linear in N; using cells
+// *larger* than the cutoff only means visiting extra pairs, which the cutoff
+// then finds to be exact zeros anyway.
+function cellSizeFloor(n) {
+  const budget = Math.max(4096, 64 * n); // cells, so the sweep stays O(N)
+  return 2 / Math.max(1, Math.cbrt(budget) - 3);
+}
+
+function buildCellGrid(xs, n, h) {
+  const K = Math.ceil(1 / h) + 1; // axis cells run -K..K, with a cell of margin
+  const D = 2 * K + 1;
+  const nCells = D * D * D;
+  const start = new Int32Array(nCells + 1);
+  const cellOf = new Int32Array(n);
+  for (let i = 0; i < n; i++) {
+    const cx = Math.floor(xs[3 * i] / h) + K;
+    const cy = Math.floor(xs[3 * i + 1] / h) + K;
+    const cz = Math.floor(xs[3 * i + 2] / h) + K;
+    const c = (cx * D + cy) * D + cz;
+    cellOf[i] = c;
+    start[c + 1]++;
+  }
+  for (let c = 0; c < nCells; c++) start[c + 1] += start[c];
+  const fill = start.slice(0, nCells);
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[fill[cellOf[i]]++] = i;
+  return { D, start, order, cellOf };
+}
+
+// Largest pairwise dot product, i.e. the closest pair - the same pair under
+// both metrics, since chord = sqrt(2-2*dot) and geodesic angle = acos(dot) are
+// both monotone decreasing in dot.
+//
+// The grid can be used here despite the cutoff not being known yet, because
+// the minimum separation has an a-priori bound: n disjoint spherical caps of
+// angular radius theta/2 have total area at most 4*pi, so
+// n*(1-cos(theta/2)) <= 2, and with chord = 2*sin(theta/2) that gives
+// d_min <= 4/sqrt(n) exactly. Cells that size are therefore guaranteed to
+// contain the closest pair within adjacent cells, whatever the configuration.
+function closestPairMaxDot(xs, n) {
+  const h = Math.max(4 / Math.sqrt(n), cellSizeFloor(n));
+  if (h >= 2) return maxDotAllPairs(xs, n); // grid would be a single cell
+  const { D, start, order, cellOf } = buildCellGrid(xs, n, h);
+  let maxDot = -2;
+  for (let i = 0; i < n; i++) {
+    const c = cellOf[i];
+    const cz = c % D, cy = ((c - cz) / D) % D, cx = (c - cz - cy * D) / (D * D);
+    const xi0 = xs[3 * i], xi1 = xs[3 * i + 1], xi2 = xs[3 * i + 2];
+    for (let ax = cx - 1; ax <= cx + 1; ax++) {
+      for (let ay = cy - 1; ay <= cy + 1; ay++) {
+        const base = (ax * D + ay) * D;
+        for (let az = cz - 1; az <= cz + 1; az++) {
+          const c2 = base + az;
+          for (let s = start[c2], e = start[c2 + 1]; s < e; s++) {
+            const j = order[s];
+            if (j <= i) continue;
+            const d = xi0 * xs[3 * j] + xi1 * xs[3 * j + 1] + xi2 * xs[3 * j + 2];
+            if (d > maxDot) maxDot = d;
+          }
+        }
+      }
+    }
+  }
+  return maxDot;
+}
+
+function maxDotAllPairs(xs, n) {
+  let maxDot = -2;
+  for (let i = 0; i < n; i++) {
+    const xi0 = xs[3 * i], xi1 = xs[3 * i + 1], xi2 = xs[3 * i + 2];
+    for (let j = i + 1; j < n; j++) {
+      const d = xi0 * xs[3 * j] + xi1 * xs[3 * j + 1] + xi2 * xs[3 * j + 2];
+      if (d > maxDot) maxDot = d;
+    }
+  }
+  return maxDot;
+}
+
+// Below this the relative weight (d/dMin)^-p is not merely small but *exactly*
+// zero in double precision: the smallest positive denormal is 2^-1074, and
+// anything under 2^-1075 rounds to zero, so p*log(d/dMin) past ~745.1
+// annihilates the term. Rounded up for margin, and deliberately the denormal
+// limit rather than the normal one (~709), so that a skipped pair contributes
+// bitwise nothing - to the energy, to the forces, and to the per-point
+// energies alike - and truncation is exact rather than approximate.
+const LOG_WEIGHT_UNDERFLOW = 746;
+
+// Exponentiation by squaring, for the integer and half-integer stops the p
+// slider mostly consists of. Math.pow dominates the pair kernel whenever the
+// exponent isn't one V8 special-cases - N=1024 costs ~27ms per step at p=2.5
+// against ~7ms at p=1, and the gap is almost entirely this one call - while
+// q^k for modest integer k is a handful of multiplies. Safe from overflow
+// because the caller's q = dMin/d always lies in (0,1].
+function powInt(q, k) {
+  let r = 1, b = q;
+  while (k > 0) {
+    if (k & 1) r *= b;
+    k >>= 1;
+    b *= b;
+  }
+  return r;
+}
+
+// Which power strategy a given p admits: 1 for integer, 2 for half-integer
+// (taken on sqrt(q)), 0 for the general Math.pow. Restricted to p up to
+// P_PHYSICAL_MAX, partly because squaring compounds rounding - about
+// log2(p) ulps - and partly because above there the truncation grid is doing
+// the work anyway, so the two accelerations divide the p range between them
+// rather than competing over it.
+function powStrategy(p, isLog) {
+  if (isLog || p > P_PHYSICAL_MAX) return 0;
+  if (Number.isInteger(p)) return 1;
+  if (Number.isInteger(2 * p)) return 2;
+  return 0;
+}
+
+// One pair's contribution: adds to the two force accumulators and the two
+// per-point energies, and returns its energy term. Kept as a function so the
+// grid-truncated and all-pairs loops can share it rather than each carry a
+// copy of the metric handling and its degenerate cases.
+function accumulatePair(i, j, xs, fx, pe, p, isLog, spherical, dMinEff, step, powMode, powK) {
+  const i3 = 3 * i, j3 = 3 * j;
+  const xi0 = xs[i3], xi1 = xs[i3 + 1], xi2 = xs[i3 + 2];
+  const xj0 = xs[j3], xj1 = xs[j3 + 1], xj2 = xs[j3 + 2];
+
+  if (spherical) {
+    // geodesic distance: d = theta = arccos(xi . xj), a great-circle angle.
+    // Direction on xi is the tangent at xi pointing away from xj; by
+    // construction (xj - dot*xi) is already orthogonal to xi, and its norm
+    // equals sin(theta), so normalizing it is direct - no need to separately
+    // compute theta first.
+    let dot = xi0 * xj0 + xi1 * xj1 + xi2 * xj2;
+    dot = dot < -1 ? -1 : dot > 1 ? 1 : dot;
+    const rawI0 = xj0 - dot * xi0, rawI1 = xj1 - dot * xi1, rawI2 = xj2 - dot * xi2;
+    const sinTheta = Math.sqrt(rawI0 * rawI0 + rawI1 * rawI1 + rawI2 * rawI2);
+
+    let uix, uiy, uiz, ujx, ujy, ujz;
+    if (sinTheta < SIN_ZERO && dot > 0) {
+      // coincident (theta ~ 0): energy diverges here and any escape
+      // direction reduces it, so break the tie with a random kick
+      const rnd = mulberry32((i * 92821) ^ (j * 68917) ^ (step * 104729));
+      const ti = randomTangentAt([xi0, xi1, xi2], rnd);
+      const tj = randomTangentAt([xj0, xj1, xj2], rnd);
+      uix = -ti[0]; uiy = -ti[1]; uiz = -ti[2];
+      ujx = -tj[0]; ujy = -tj[1]; ujz = -tj[2];
+    } else if (sinTheta < SIN_ZERO) {
+      // antipodal (theta ~ pi): geodesic distance is already at its maximum
+      // (pi) for this pair, i.e. this pair's energy is already at *its*
+      // minimum - every direction away only increases it, so (unlike the
+      // coincident case) the correct contribution is zero, not a forced kick.
+      // This mirrors what the Euclidean branch gets "for free": there, the
+      // antipodal force is exactly radial and is annihilated by the tangential
+      // projection later; the spherical branch's direction vectors are
+      // tangential by construction, so that same cancellation never happens
+      // unless done explicitly here.
+      uix = uiy = uiz = 0; ujx = ujy = ujz = 0;
+    } else {
+      // away-from-neighbour tangent unit vectors at xi and xj
+      uix = -rawI0 / sinTheta; uiy = -rawI1 / sinTheta; uiz = -rawI2 / sinTheta;
+      const rawJ0 = xi0 - dot * xj0, rawJ1 = xi1 - dot * xj1, rawJ2 = xi2 - dot * xj2;
+      ujx = -rawJ0 / sinTheta; ujy = -rawJ1 / sinTheta; ujz = -rawJ2 / sinTheta;
+    }
+
+    const theta = Math.acos(dot);
+    const thetaEff = theta > THETA_MIN ? theta : THETA_MIN;
+    const e = isLog ? -Math.log(thetaEff)
+      : powMode === 1 ? powInt(dMinEff / thetaEff, powK)
+      : powMode === 2 ? powInt(Math.sqrt(dMinEff / thetaEff), powK)
+      : Math.pow(thetaEff / dMinEff, -p);
+    const m = isLog ? 1 / thetaEff : e / thetaEff;
+    pe[i] += e; pe[j] += e;
+    fx[i3] += m * uix; fx[i3 + 1] += m * uiy; fx[i3 + 2] += m * uiz;
+    fx[j3] += m * ujx; fx[j3 + 1] += m * ujy; fx[j3 + 2] += m * ujz;
+    return e;
+  }
+
+  // Euclidean chord distance through the ambient 3D space
+  const dx = xi0 - xj0, dy = xi1 - xj1, dz = xi2 - xj2;
+  const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  let ux, uy, uz;
+  if (r < R_ZERO) {
+    const rnd = mulberry32((i * 92821) ^ (j * 68917) ^ (step * 104729));
+    const a = 2 * rnd() - 1, th = 2 * Math.PI * rnd();
+    const rr = Math.sqrt(Math.max(0, 1 - a * a));
+    ux = rr * Math.cos(th); uy = rr * Math.sin(th); uz = a;
+  } else {
+    ux = dx / r; uy = dy / r; uz = dz / r;
+  }
+
+  const rEff = r > R_MIN ? r : R_MIN; // magnitude only - direction above is exact
+  // e is the pair's relative weight (d/dMin)^-p for p>0, or its actual
+  // log-energy for p=0; m is the matching restoring magnitude, which for p>0
+  // drops p as a common factor (reinstated in `scale` by the caller) so that
+  // m = w/d rather than p*d^-(p+1).
+  const e = isLog ? -Math.log(rEff)
+    : powMode === 1 ? powInt(dMinEff / rEff, powK)
+    : powMode === 2 ? powInt(Math.sqrt(dMinEff / rEff), powK)
+    : Math.pow(rEff / dMinEff, -p);
+  const m = isLog ? 1 / rEff : e / rEff;
+  pe[i] += e; pe[j] += e;
+  fx[i3] += m * ux; fx[i3 + 1] += m * uy; fx[i3 + 2] += m * uz;
+  fx[j3] -= m * ux; fx[j3 + 1] -= m * uy; fx[j3 + 2] -= m * uz;
+  return e;
+}
+
 function computeEnergyAndForce() {
   const pts = state.points;
   const n = pts.length;
@@ -221,9 +490,9 @@ function computeEnergyAndForce() {
   const spherical = state.metric === "spherical";
   const forces = new Array(n);
   const pointEnergy = new Array(n).fill(0); // per-vertex potential energy, for the hover info panel
-  for (let i = 0; i < n; i++) forces[i] = [0, 0, 0];
 
   if (n < 2) {
+    for (let i = 0; i < n; i++) forces[i] = [0, 0, 0];
     state.energy = 0;
     state._logEnergy = -Infinity;
     state._minSeparation = NaN;
@@ -237,24 +506,20 @@ function computeEnergyAndForce() {
     return forces;
   }
 
-  // ---- pass 1: locate the closest pair ----
-  // Only the largest dot product is needed, and it settles both metrics at
-  // once: chord = sqrt(2-2*dot) and geodesic angle = acos(dot) are both
-  // monotone decreasing in dot, so the closest pair is the same pair either
-  // way. That makes this one multiply-add per pair plus a single sqrt/acos
-  // afterwards - far cheaper than pass 2, which also needs directions and a
-  // transcendental per pair. Two things consume it: the min-separation stat
-  // (the quantity of interest as p grows, and the one Tammes tables are
-  // written in), and the log-sum-exp shift below.
-  let maxDot = -2;
+  const { xs, fx, pe } = pairScratch(n);
   for (let i = 0; i < n; i++) {
     const xi = pts[i];
-    for (let j = i + 1; j < n; j++) {
-      const xj = pts[j];
-      const d = xi[0] * xj[0] + xi[1] * xj[1] + xi[2] * xj[2];
-      if (d > maxDot) maxDot = d;
-    }
+    xs[3 * i] = xi[0]; xs[3 * i + 1] = xi[1]; xs[3 * i + 2] = xi[2];
   }
+  fx.fill(0);
+  pe.fill(0);
+
+  // ---- pass 1: locate the closest pair ----
+  // Only the largest dot product is needed, and it settles both metrics at
+  // once (see closestPairMaxDot). Two things consume it: the min-separation
+  // stat (the quantity of interest as p grows, and the one Tammes tables are
+  // written in), and the log-sum-exp shift below.
+  const maxDot = closestPairMaxDot(xs, n);
   const minAngle = Math.acos(Math.max(-1, Math.min(1, maxDot)));
   state._minSeparation = minAngle;
   // The smallest *effective* (floored) separation, in the active metric's
@@ -284,85 +549,54 @@ function computeEnergyAndForce() {
   // `accum` there is simply the energy itself.
   let accum = 0;
 
-  for (let i = 0; i < n; i++) {
-    const xi = pts[i];
-    for (let j = i + 1; j < n; j++) {
-      const xj = pts[j];
+  // Truncation radius, in chord units so the grid can use it directly. Past
+  // it every weight is exactly zero (see LOG_WEIGHT_UNDERFLOW), so dropping
+  // those pairs is not an approximation with an error budget - it is the same
+  // arithmetic with the zeros left out. The radius shrinks as p grows, which
+  // is exactly when it is needed: the log-domain reformulation made p=1000
+  // reachable, and at that exponent the sum is genuinely short-ranged.
+  //
+  // For the spherical metric the cutoff is on the angle, converted to a chord
+  // through the monotone chord = 2*sin(theta/2).
+  let chordCut = Infinity;
+  if (!isLog) {
+    const cut = dMinEff * Math.exp(LOG_WEIGHT_UNDERFLOW / p);
+    chordCut = spherical ? (cut >= Math.PI ? Infinity : 2 * Math.sin(cut / 2)) : cut;
+  }
+  const hCut = Math.max(chordCut, cellSizeFloor(n));
+  // Above this the grid is a handful of cells wide and buys nothing but its
+  // own bookkeeping, so the plain double loop stays the default.
+  const useGrid = hCut < 0.5 && n >= 32;
+  const powMode = powStrategy(p, isLog);
+  const powK = powMode === 2 ? 2 * p : p;
 
-      if (spherical) {
-        // geodesic distance: d = theta = arccos(xi . xj), a great-circle
-        // angle. Direction on xi is the tangent at xi pointing away from xj;
-        // by construction (xj - dot*xi) is already orthogonal to xi, and its
-        // norm equals sin(theta), so normalizing it is direct - no need to
-        // separately compute theta first.
-        const dot = Math.max(-1, Math.min(1, xi[0] * xj[0] + xi[1] * xj[1] + xi[2] * xj[2]));
-        const rawI0 = xj[0] - dot * xi[0], rawI1 = xj[1] - dot * xi[1], rawI2 = xj[2] - dot * xi[2];
-        const sinTheta = Math.sqrt(rawI0 * rawI0 + rawI1 * rawI1 + rawI2 * rawI2);
-
-        let uix, uiy, uiz, ujx, ujy, ujz;
-        if (sinTheta < SIN_ZERO && dot > 0) {
-          // coincident (theta ~ 0): energy diverges here and any escape
-          // direction reduces it, so break the tie with a random kick
-          const rnd = mulberry32((i * 92821) ^ (j * 68917) ^ (state.step * 104729));
-          const ti = randomTangentAt(xi, rnd);
-          const tj = randomTangentAt(xj, rnd);
-          uix = -ti[0]; uiy = -ti[1]; uiz = -ti[2];
-          ujx = -tj[0]; ujy = -tj[1]; ujz = -tj[2];
-        } else if (sinTheta < SIN_ZERO) {
-          // antipodal (theta ~ pi): geodesic distance is already at its
-          // maximum (pi) for this pair, i.e. this pair's energy is already
-          // at *its* minimum - every direction away only increases it, so
-          // (unlike the coincident case) the correct contribution is zero,
-          // not a forced kick. This mirrors what the Euclidean branch gets
-          // "for free": there, the antipodal force is exactly radial and is
-          // annihilated by the tangential projection below; the spherical
-          // branch's direction vectors are tangential by construction, so
-          // that same cancellation never happens unless done explicitly here.
-          uix = uiy = uiz = 0; ujx = ujy = ujz = 0;
-        } else {
-          // away-from-neighbour tangent unit vectors at xi and xj
-          uix = -rawI0 / sinTheta; uiy = -rawI1 / sinTheta; uiz = -rawI2 / sinTheta;
-          const rawJ0 = xi[0] - dot * xj[0], rawJ1 = xi[1] - dot * xj[1], rawJ2 = xi[2] - dot * xj[2];
-          ujx = -rawJ0 / sinTheta; ujy = -rawJ1 / sinTheta; ujz = -rawJ2 / sinTheta;
+  if (useGrid) {
+    const { D, start, order, cellOf } = buildCellGrid(xs, n, hCut);
+    for (let i = 0; i < n; i++) {
+      const c = cellOf[i];
+      const cz = c % D, cy = ((c - cz) / D) % D, cx = (c - cz - cy * D) / (D * D);
+      for (let ax = cx - 1; ax <= cx + 1; ax++) {
+        for (let ay = cy - 1; ay <= cy + 1; ay++) {
+          const base = (ax * D + ay) * D;
+          for (let az = cz - 1; az <= cz + 1; az++) {
+            const c2 = base + az;
+            for (let s = start[c2], e = start[c2 + 1]; s < e; s++) {
+              const j = order[s];
+              if (j > i) accum += accumulatePair(i, j, xs, fx, pe, p, isLog, spherical, dMinEff, state.step, powMode, powK);
+            }
+          }
         }
-
-        const theta = Math.acos(dot);
-        const thetaEff = Math.max(theta, THETA_MIN);
-        const e = isLog ? -Math.log(thetaEff) : Math.pow(thetaEff / dMinEff, -p);
-        const m = isLog ? 1 / thetaEff : e / thetaEff;
-        accum += e;
-        pointEnergy[i] += e; pointEnergy[j] += e;
-        forces[i][0] += m * uix; forces[i][1] += m * uiy; forces[i][2] += m * uiz;
-        forces[j][0] += m * ujx; forces[j][1] += m * ujy; forces[j][2] += m * ujz;
-      } else {
-        // Euclidean chord distance through the ambient 3D space
-        const dx = xi[0] - xj[0], dy = xi[1] - xj[1], dz = xi[2] - xj[2];
-        const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-        let ux, uy, uz;
-        if (r < R_ZERO) {
-          const rnd = mulberry32((i * 92821) ^ (j * 68917) ^ (state.step * 104729));
-          const a = 2 * rnd() - 1, th = 2 * Math.PI * rnd();
-          const rr = Math.sqrt(Math.max(0, 1 - a * a));
-          ux = rr * Math.cos(th); uy = rr * Math.sin(th); uz = a;
-        } else {
-          ux = dx / r; uy = dy / r; uz = dz / r;
-        }
-
-        const rEff = Math.max(r, R_MIN); // magnitude only - direction above is exact
-        // e is the pair's relative weight (d/dMin)^-p for p>0, or its actual
-        // log-energy for p=0; m is the matching restoring magnitude, which
-        // for p>0 drops p as a common factor (reinstated in `scale` below)
-        // so that m = w/d rather than p*d^-(p+1).
-        const e = isLog ? -Math.log(rEff) : Math.pow(rEff / dMinEff, -p);
-        const m = isLog ? 1 / rEff : e / rEff;
-        accum += e;
-        pointEnergy[i] += e; pointEnergy[j] += e;
-        forces[i][0] += m * ux; forces[i][1] += m * uy; forces[i][2] += m * uz;
-        forces[j][0] -= m * ux; forces[j][1] -= m * uy; forces[j][2] -= m * uz;
+      }
+    }
+  } else {
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        accum += accumulatePair(i, j, xs, fx, pe, p, isLog, spherical, dMinEff, state.step, powMode, powK);
       }
     }
   }
+  state._truncated = useGrid;
+
   // ---- recover real units ----
   // Everything above is in "relative to the closest pair" units for p>0.
   // Undoing that is a single scalar per quantity:
@@ -389,8 +623,9 @@ function computeEnergyAndForce() {
     // Per-point energies follow the total: real units where the total is
     // representable, otherwise each point's share of it.
     const pointScale = state._energyRelative ? 1 / accum : Math.exp(-p * logDMin);
-    for (let i = 0; i < n; i++) pointEnergy[i] *= pointScale;
+    for (let i = 0; i < n; i++) pe[i] *= pointScale;
   }
+  for (let i = 0; i < n; i++) pointEnergy[i] = pe[i];
   state._dMinEff = dMinEff; // consumed by pairForceMagnitude's relative branch
   state._sumW = accum;
   // Multiply any magnitude drawn from state._forces by this to get it in
@@ -404,16 +639,18 @@ function computeEnergyAndForce() {
 
   let maxA = 0;
   for (let i = 0; i < n; i++) {
-    const xi = pts[i], f = forces[i];
+    const i3 = 3 * i;
+    const x0 = xs[i3], x1 = xs[i3 + 1], x2 = xs[i3 + 2];
+    const f0 = fx[i3], f1 = fx[i3 + 1], f2 = fx[i3 + 2];
     // project onto tangent plane at xi (a no-op for the spherical branch,
     // whose contributions are already exactly tangential by construction)
-    const dot = f[0] * xi[0] + f[1] * xi[1] + f[2] * xi[2];
-    const tx = (f[0] - dot * xi[0]) * scale, ty = (f[1] - dot * xi[1]) * scale, tz = (f[2] - dot * xi[2]) * scale;
-    forces[i] = [tx, ty, tz];
+    const dot = f0 * x0 + f1 * x1 + f2 * x2;
+    const ax = f0 - dot * x0, ay = f1 - dot * x1, az = f2 - dot * x2;
+    forces[i] = [ax * scale, ay * scale, az * scale];
     // Magnitude of the *unscaled* accumulator, so both the displayed force
     // and the dimensionless residual below can be derived exactly without
     // dividing by p*E (which is itself Infinity at large p).
-    const magA = Math.sqrt((f[0] - dot * xi[0]) ** 2 + (f[1] - dot * xi[1]) ** 2 + (f[2] - dot * xi[2]) ** 2);
+    const magA = Math.sqrt(ax * ax + ay * ay + az * az);
     if (magA > maxA) maxA = magA;
   }
   state.maxForce = maxA * scale;

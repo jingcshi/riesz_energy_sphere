@@ -119,6 +119,29 @@ h1 {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+/* A readout that is also an input: reads as the other .val badges until
+   hovered or focused, so the slider stays the obvious control and typing an
+   exact value is the affordance underneath it. */
+.control label input.val-input {
+  width: 5.5em;
+  text-align: right;
+  padding: 0 2px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.control label input.val-input:hover {
+  border-color: var(--border);
+}
+.control label input.val-input:focus {
+  outline: none;
+  background: #0d1117;
+  border-color: var(--accent);
+}
 input[type="range"] {
   width: 100%;
   accent-color: var(--accent);

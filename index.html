@@ -18,7 +18,7 @@
 // source order, and blocking. A script element added from JS wouldn't
 // preserve execution order without extra care, and a stylesheet added that
 // way doesn't block the first paint, so the page would flash unstyled.
-const ASSET_VERSION = "2026-08-21";
+const ASSET_VERSION = "2026-08-21b";
 document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`);
 </script>
 </head>
@@ -42,8 +42,10 @@ document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`
 
     <div class="section-title">Parameters</div>
     <div class="control">
-      <label>N (points)<span class="val" id="nVal">24</span></label>
-      <input type="range" id="nSlider" min="1" max="100" step="1" value="24">
+      <label>N (points)<input type="number" class="val val-input" id="nInput" min="1" max="1024" step="1" value="24"></label>
+      <!-- Index into N_VALUES, whose stops widen with N; max is set from
+           N_VALUES.length at init, so the two can't drift. -->
+      <input type="range" id="nSlider" min="0" max="191" step="1" value="23">
     </div>
 
     <div class="control">
@@ -199,6 +201,14 @@ document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`
           Euclidean chord to the geodesic (great-circle) angle, matching a universe
           where nothing can act except along the sphere's own surface. The metric
           toggle is independent of edge rendering below.
+        </p>
+        <p>
+          The <b>N</b> slider steps one point at a time to 64, then doubles its step
+          at each power of two up to 1024. Nearly everything worth stepping through
+          one point at a time &mdash; the magic numbers, the defect patterns, the
+          N=5 degeneracy &mdash; is at small N, whereas past a few hundred a single
+          extra point changes nothing visible. Type into the readout beside the
+          label for an exact N the slider skips.
         </p>
         <p>
           The p slider runs from 0 to 1000 on a coarsening scale &mdash; fine enough

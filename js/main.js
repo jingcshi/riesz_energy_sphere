@@ -60,7 +60,7 @@ const pSlider = document.getElementById("pSlider");
 const seedInput = document.getElementById("seedInput");
 const randomizeSeedBtn = document.getElementById("randomizeSeedBtn");
 const speedSlider = document.getElementById("speedSlider");
-const nVal = document.getElementById("nVal");
+const nInput = document.getElementById("nInput");
 const pVal = document.getElementById("pVal");
 const speedVal = document.getElementById("speedVal");
 const playBtn = document.getElementById("playBtn");
@@ -96,8 +96,25 @@ function setPlaying(playing) {
 }
 
 nSlider.addEventListener("input", () => {
-  state.N = parseInt(nSlider.value, 10);
-  nVal.textContent = state.N;
+  state.N = N_VALUES[parseInt(nSlider.value, 10)];
+  nInput.value = String(state.N);
+  resetConfiguration();
+});
+// The slider only stops at N_VALUES, so anything in between has to be typed.
+// Commit on change rather than input, so a partially typed number isn't taken
+// as a request to rebuild the configuration on every keystroke.
+nInput.addEventListener("change", () => {
+  // A number input reports anything unparseable as the empty string, and
+  // Number("") is 0, which would silently collapse the configuration to a
+  // single point - so an empty or nonsensical entry restores the current N
+  // rather than being clamped into range.
+  const raw = nInput.value.trim();
+  const wanted = raw === "" ? NaN : Math.round(Number(raw));
+  const n = Number.isFinite(wanted) ? Math.min(N_MAX, Math.max(1, wanted)) : state.N;
+  nInput.value = String(n);
+  if (n === state.N) return;
+  state.N = n;
+  nSlider.value = String(nearestNIndex(n));
   resetConfiguration();
 });
 // Native `disabled` suppresses hover/title tooltips in most browsers, which
@@ -393,10 +410,13 @@ function tick() {
 }
 
 // ---------- init ----------
-// Derived from P_VALUES rather than trusted from the markup, so extending the
-// p scale can't silently leave the top of it unreachable.
+// Derived from P_VALUES/N_VALUES rather than trusted from the markup, so
+// extending either scale can't silently leave the top of it unreachable.
 pSlider.max = String(P_VALUES.length - 1);
-state.N = parseInt(nSlider.value, 10);
+nSlider.max = String(N_VALUES.length - 1);
+nInput.max = String(N_MAX);
+state.N = N_VALUES[parseInt(nSlider.value, 10)];
+nInput.value = String(state.N);
 state.p = P_VALUES[parseInt(pSlider.value, 10)];
 state.seed = parseInt(seedInput.value, 10);
 state.speed = parseFloat(speedSlider.value);
