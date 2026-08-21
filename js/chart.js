@@ -303,8 +303,12 @@ function makeChartWindow(barCanvas, getMaxStep, onChanged) {
     const wasAtEnd = hi >= max - WIN_WINDOW * 0.05 || hi >= _prevMax;
     _prevMax = max;
     if (wasAtEnd || hi === 0) {
+      // Preserve the user's chosen span; only initialise to WIN_WINDOW the
+      // very first time (hi===0). Resetting to WIN_WINDOW on every tracking
+      // frame would fight any lo the user had dragged.
+      const span = hi === 0 ? WIN_WINDOW : hi - lo;
       hi = max;
-      lo = Math.max(0, max - WIN_WINDOW);
+      lo = Math.max(0, max - span);
     }
     clamp();
   }
