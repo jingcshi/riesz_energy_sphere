@@ -66,6 +66,13 @@ browser, or serve the directory with anything static, e.g.:
 python3 -m http.server
 ```
 
+**When deploying, bump `ASSET_VERSION` in `index.html`.** Every stylesheet and
+script is requested with it as a `?v=` query string, which is what stops a
+returning visitor from running a freshly-fetched `index.html` against scripts
+still cached from the previous deploy. Any string will do so long as it
+changes; leaving it alone republishes the same URLs and the protection
+lapses.
+
 ## Structure
 
 ```

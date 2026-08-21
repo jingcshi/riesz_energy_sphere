@@ -119,7 +119,7 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
         bestFaceZ = fp.avgZ;
         const cx = fp.path.reduce((s, p) => s + p.x, 0) / fp.path.length;
         const cy = fp.path.reduce((s, p) => s + p.y, 0) / fp.path.length;
-        best = { type: "face", sides: fp.sides, vertices: fp.vertices, area: fp.area, nonLocal: fp.nonLocal, x: cx, y: cy };
+        best = { type: "face", sides: fp.sides, vertices: fp.vertices, nonLocal: fp.nonLocal, x: cx, y: cy };
       }
     }
   }
@@ -135,12 +135,15 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
     // Vertex count always equals side count for a polygon, so it's not
     // worth its own row - the vertex list itself (in the face's boundary
     // order) is the more informative title, standing in for both at once.
-    const { sides, vertices, area, nonLocal } = best;
+    // Both measurements follow the Shape control, so they describe the same
+    // surface as each other and as what's drawn: the inscribed flat polygon,
+    // or the spherical patch it subtends.
+    const { sides, vertices, nonLocal } = best;
     hoverTooltip.innerHTML = `
       <div class="hover-title">Face ${vertices.join("-")}${nonLocal ? " (non-local)" : ""}</div>
       <div class="hover-row"><span>Sides</span><span>${sides}</span></div>
       <div class="hover-row"><span>Circumference</span><span>${fmt(facePerimeter(vertices))}</span></div>
-      <div class="hover-row"><span>Area</span><span>${fmt(area)}</span></div>`;
+      <div class="hover-row"><span>Area</span><span>${fmt(faceArea(vertices))}</span></div>`;
   } else if (best.type === "vertex") {
     const i = best.idx;
     // Degree comes straight from state._degree (the true, full-point-set

@@ -3,7 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <title>Riesz Energy Simulator on S&sup2;</title>
-<link rel="stylesheet" href="css/style.css">
+<script>
+// Cache-busting for every local asset below. GitHub Pages serves them with
+// max-age=600 and no content hashes, so for ten minutes after a deploy a
+// returning visitor can run a new index.html against stale cached scripts -
+// not a stale page, which would at least be self-consistent, but a mix of
+// the two, which fails in whatever way the mismatch happens to produce.
+// Appending a version the browser has never seen makes every deploy a set of
+// URLs it has to fetch. Bump on deploy; any string works so long as it
+// changes.
+//
+// document.write, rather than injecting elements, because these have to
+// behave exactly like the static tags they replace: parser-inserted, in
+// source order, and blocking. A script element added from JS wouldn't
+// preserve execution order without extra care, and a stylesheet added that
+// way doesn't block the first paint, so the page would flash unstyled.
+const ASSET_VERSION = "2026-08-21";
+document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`);
+</script>
 </head>
 <body>
 <div id="app">
@@ -370,7 +387,9 @@
           polygon faces &mdash; the inscribed polytope. Arcs gives great-circle
           edges and spherical patch faces, so a shown face reads as a genuine tile
           on the sphere's own surface. It's independent of the Metric setting,
-          which governs the physics rather than the drawing.
+          which governs the physics rather than the drawing. Hover measurements
+          follow it, so an edge's length and a face's circumference and area
+          always describe the surface you're actually looking at.
         </p>
         <p>
           N, p, seed, and animation speed can all be changed live, whether paused or
@@ -383,15 +402,12 @@
   </div>
 </div>
 
-<script src="js/rng.js"></script>
-<script src="js/geometry.js"></script>
-<script src="js/physics.js"></script>
-<script src="js/hull.js"></script>
-<script src="js/edges.js"></script>
-<script src="js/faces.js"></script>
-<script src="js/render.js"></script>
-<script src="js/hover.js"></script>
-<script src="js/chart.js"></script>
-<script src="js/main.js"></script>
+<script>
+// Load order is dependency order and main.js must be last - see the head for
+// why these are written out rather than listed as static tags.
+for (const m of ["rng", "geometry", "physics", "hull", "edges", "faces", "render", "hover", "chart", "main"]) {
+  document.write(`<script src="js/${m}.js?v=${ASSET_VERSION}"><\/script>`);
+}
+</script>
 </body>
 </html>

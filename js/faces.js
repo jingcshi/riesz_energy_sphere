@@ -30,7 +30,7 @@ function faceUnitNormal(pts, a, b, c) {
   const vx = pc[0] - pa[0], vy = pc[1] - pa[1], vz = pc[2] - pa[2];
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
   const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  return [nx / len, ny / len, nz / len, len]; // len (pre-normalize) reused for area below
+  return [nx / len, ny / len, nz / len];
 }
 
 function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
@@ -88,12 +88,9 @@ function computeFacesForPoints(pts) {
 
   const nTri = tris.length;
   const normals = new Array(nTri);
-  const triArea = new Array(nTri);
   for (let t = 0; t < nTri; t++) {
     const [a, b, c] = tris[t];
-    const [nx, ny, nz, crossLen] = faceUnitNormal(pts, a, b, c);
-    normals[t] = [nx, ny, nz];
-    triArea[t] = crossLen / 2;
+    normals[t] = faceUnitNormal(pts, a, b, c);
   }
 
   // Directed-edge -> owning triangle index (exactly one owner per direction
@@ -124,21 +121,23 @@ function computeFacesForPoints(pts) {
     groups.get(r).push(t);
   }
 
+  // Area isn't carried on the face: it depends on the Shape control, which
+  // can change without the tiling changing, and only the one face under the
+  // cursor is ever asked for it. See faceArea below.
   const faces = [];
   for (const triIdxs of groups.values()) {
-    const area = triIdxs.reduce((s, t) => s + triArea[t], 0);
     if (triIdxs.length === 1) {
-      faces.push({ vertices: tris[triIdxs[0]].slice(), sides: 3, area });
+      faces.push({ vertices: tris[triIdxs[0]].slice(), sides: 3 });
       continue;
     }
     const loop = traceBoundary(triIdxs, tris, owner);
     if (loop) {
-      faces.push({ vertices: loop, sides: loop.length, area });
+      faces.push({ vertices: loop, sides: loop.length });
     } else {
       // Defensive fallback (shouldn't trigger given hull-convexity, see
       // header comment) - keep this group's triangles unmerged rather than
       // risk drawing a malformed polygon.
-      for (const t of triIdxs) faces.push({ vertices: tris[t].slice(), sides: 3, area: triArea[t] });
+      for (const t of triIdxs) faces.push({ vertices: tris[t].slice(), sides: 3 });
     }
   }
   return { faces };
@@ -146,9 +145,7 @@ function computeFacesForPoints(pts) {
 
 // Perimeter of a face's boundary, following the Shape control for the same
 // reason the edge tooltip's Length row does: it's the length of the boundary
-// as drawn, chords or great-circle arcs. (The Area reported alongside it is
-// the flat polygon's, in both modes - a spherical patch's own area needs the
-// angle sum, which nothing here computes.)
+// as drawn, chords or great-circle arcs.
 function facePerimeter(vertices) {
   const arcs = state.shapeStyle === "arcs";
   let total = 0;
@@ -165,22 +162,76 @@ function facePerimeter(vertices) {
 
 // Newell's method: robust for an n-gon whose consecutive triples can be
 // near-collinear, where a single cross product isn't, and exact for a
-// triangle. Then flipped to point outward, which every face of a hull of
-// points on an origin-centred sphere identifies unambiguously by its own
-// centroid - so the result doesn't depend on the caller's winding.
-function facePlaneNormal(vertices) {
-  let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
+// triangle. The vector it returns has magnitude twice the polygon's area and
+// direction normal to it, so both callers below want the same loop.
+function faceNewellVector(vertices) {
+  let nx = 0, ny = 0, nz = 0;
   for (let k = 0; k < vertices.length; k++) {
     const p = state.points[vertices[k]], q = state.points[vertices[(k + 1) % vertices.length]];
     nx += (p[1] - q[1]) * (p[2] + q[2]);
     ny += (p[2] - q[2]) * (p[0] + q[0]);
     nz += (p[0] - q[0]) * (p[1] + q[1]);
-    cx += p[0]; cy += p[1]; cz += p[2];
   }
+  return [nx, ny, nz];
+}
+
+// Flipped to point outward, which every face of a hull of points on an
+// origin-centred sphere identifies unambiguously by its own centroid - so the
+// result doesn't depend on the caller's winding.
+function facePlaneNormal(vertices) {
+  const [nx, ny, nz] = faceNewellVector(vertices);
   const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
   if (!(len > 0)) return null;
+  let cx = 0, cy = 0, cz = 0;
+  for (const v of vertices) { cx += state.points[v][0]; cy += state.points[v][1]; cz += state.points[v][2]; }
   const sign = (nx * cx + ny * cy + nz * cz) < 0 ? -1 : 1;
   return [sign * nx / len, sign * ny / len, sign * nz / len];
+}
+
+// Area of a face, following the Shape control like the perimeter above, since
+// the two shapes are genuinely different surfaces: the flat polygon inscribed
+// in the sphere, or the spherical patch it subtends.
+//
+// The flat case is Newell's vector, half its magnitude being the area. For a
+// merged face that isn't exactly planar (the merge tolerates ~1.8 degrees)
+// this is the area of the best-fit planar polygon rather than of the folded
+// triangle fan, which differ only in that tolerance's cosine, ~0.05%.
+//
+// The spherical case is Girard's theorem: a geodesic polygon's area is its
+// angular excess over the Euclidean angle sum, and on the unit sphere the
+// two are numerically equal. The interior angle at each vertex is the angle
+// between the two boundary arcs leaving it, measured between their tangent
+// directions - each neighbour projected into the tangent plane at the vertex.
+// Convexity (guaranteed here, these are hull faces) is what lets acos return
+// the interior angle rather than its reflex partner.
+function faceArea(vertices) {
+  const n = vertices.length;
+  if (n < 3) return 0;
+  if (state.shapeStyle !== "arcs") {
+    const [nx, ny, nz] = faceNewellVector(vertices);
+    return Math.sqrt(nx * nx + ny * ny + nz * nz) / 2;
+  }
+  let angleSum = 0;
+  for (let k = 0; k < n; k++) {
+    const b = state.points[vertices[k]];
+    const a = state.points[vertices[(k + n - 1) % n]];
+    const c = state.points[vertices[(k + 1) % n]];
+    const ta = tangentAt(b, a), tc = tangentAt(b, c);
+    if (!ta || !tc) return NaN;
+    angleSum += Math.acos(Math.max(-1, Math.min(1, dot3(ta, tc))));
+  }
+  return angleSum - (n - 2) * Math.PI;
+}
+
+// Unit tangent at `from` pointing along the great circle toward `to`: the
+// component of `to` perpendicular to `from`. Null for coincident or exactly
+// antipodal points, where no unique great circle exists.
+function tangentAt(from, to) {
+  const d = dot3(from, to);
+  const tx = to[0] - from[0] * d, ty = to[1] - from[1] * d, tz = to[2] - from[2] * d;
+  const len = Math.sqrt(tx * tx + ty * ty + tz * tz);
+  if (!(len > 1e-12)) return null;
+  return [tx / len, ty / len, tz / len];
 }
 
 // Dihedral angle along an edge: the interior angle between the two faces

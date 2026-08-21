@@ -313,7 +313,7 @@ function draw() {
   const localFaceKeys = new Set();
   for (const face of faceList) {
     if (face.vertices.some((vi) => isHidden[vi])) continue;
-    faceCandidates.push({ vertices: face.vertices, sides: face.sides, area: face.area, nonLocal: false });
+    faceCandidates.push({ vertices: face.vertices, sides: face.sides, nonLocal: false });
     localFaceKeys.add(vertexSetKey(face.vertices));
   }
   if (visibleIdx && visibleIdx.length >= 4) {
@@ -322,7 +322,7 @@ function draw() {
     for (const sf of subFaces) {
       const mapped = sf.vertices.map((vi) => visibleIdx[vi]);
       if (localFaceKeys.has(vertexSetKey(mapped))) continue;
-      faceCandidates.push({ vertices: mapped, sides: sf.sides, area: sf.area, nonLocal: true });
+      faceCandidates.push({ vertices: mapped, sides: sf.sides, nonLocal: true });
     }
   }
   // Exposed for the face histogram + hover - deliberately the post-hiding,
@@ -339,7 +339,7 @@ function draw() {
       if (state.hiddenFaceSides.has(face.sides)) continue;
       const path = buildFacePath(face.vertices, cx, cy, scale);
       const avgZ = path.reduce((s, pv) => s + pv.z, 0) / path.length;
-      facePaths.push({ sides: face.sides, area: face.area, vertices: face.vertices, nonLocal: face.nonLocal, path, avgZ });
+      facePaths.push({ sides: face.sides, vertices: face.vertices, nonLocal: face.nonLocal, path, avgZ });
     }
     // Painter's algorithm, back-to-front, same convention as the vertex
     // depth sort below - lets rear-facing faces be drawn without simply
