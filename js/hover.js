@@ -139,6 +139,7 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
     hoverTooltip.innerHTML = `
       <div class="hover-title">Face ${vertices.join("-")}${nonLocal ? " (non-local)" : ""}</div>
       <div class="hover-row"><span>Sides</span><span>${sides}</span></div>
+      <div class="hover-row"><span>Circumference</span><span>${fmt(facePerimeter(vertices))}</span></div>
       <div class="hover-row"><span>Area</span><span>${fmt(area)}</span></div>`;
   } else if (best.type === "vertex") {
     const i = best.idx;
@@ -180,10 +181,16 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
     // the Delaunay triangulation over the currently-visible points, so
     // Force is reported the same way as for any other edge.
     const force = pairForceMagnitude(i, j);
+    // Dihedral of the two faces meeting along this edge - how sharply the
+    // polytope creases here, 180 degrees being flat. It's also the quantity
+    // the face layer merges on (within ~1.8 degrees of 180), so a face that
+    // hasn't merged wears its reason on its shared edges.
+    const dihedralDeg = edgeDihedralDeg(i, j);
     hoverTooltip.innerHTML = `
       <div class="hover-title">Edge ${i}&ndash;${j}${nonLocal ? " (non-local)" : ""}</div>
       <div class="hover-row"><span>Length</span><span>${fmt(length)}</span></div>
       <div class="hover-row"><span>Arc angle</span><span>${fmt(arcAngleDeg, 2)}&deg;</span></div>
+      <div class="hover-row"><span>Dihedral</span><span>${Number.isFinite(dihedralDeg) ? fmt(dihedralDeg, 2) + "&deg;" : "\u2014"}</span></div>
       <div class="hover-row"><span>Force</span><span>${fmt(force, 5)}</span></div>`;
   }
 

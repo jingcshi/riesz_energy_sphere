@@ -144,6 +144,75 @@ function computeFacesForPoints(pts) {
   return { faces };
 }
 
+// Perimeter of a face's boundary, following the Shape control for the same
+// reason the edge tooltip's Length row does: it's the length of the boundary
+// as drawn, chords or great-circle arcs. (The Area reported alongside it is
+// the flat polygon's, in both modes - a spherical patch's own area needs the
+// angle sum, which nothing here computes.)
+function facePerimeter(vertices) {
+  const arcs = state.shapeStyle === "arcs";
+  let total = 0;
+  for (let k = 0; k < vertices.length; k++) {
+    const p = state.points[vertices[k]], q = state.points[vertices[(k + 1) % vertices.length]];
+    if (arcs) {
+      total += Math.acos(Math.max(-1, Math.min(1, dot3(p, q))));
+    } else {
+      total += Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+    }
+  }
+  return total;
+}
+
+// Newell's method: robust for an n-gon whose consecutive triples can be
+// near-collinear, where a single cross product isn't, and exact for a
+// triangle. Then flipped to point outward, which every face of a hull of
+// points on an origin-centred sphere identifies unambiguously by its own
+// centroid - so the result doesn't depend on the caller's winding.
+function facePlaneNormal(vertices) {
+  let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
+  for (let k = 0; k < vertices.length; k++) {
+    const p = state.points[vertices[k]], q = state.points[vertices[(k + 1) % vertices.length]];
+    nx += (p[1] - q[1]) * (p[2] + q[2]);
+    ny += (p[2] - q[2]) * (p[0] + q[0]);
+    nz += (p[0] - q[0]) * (p[1] + q[1]);
+    cx += p[0]; cy += p[1]; cz += p[2];
+  }
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (!(len > 0)) return null;
+  const sign = (nx * cx + ny * cy + nz * cz) < 0 ? -1 : 1;
+  return [sign * nx / len, sign * ny / len, sign * nz / len];
+}
+
+// Dihedral angle along an edge: the interior angle between the two faces
+// meeting there, 180 degrees meaning they lie flat. Costs nothing per frame
+// because it's only ever asked for the one edge under the cursor, and the
+// faces are already sitting in state._faces with their boundaries in order.
+//
+// Returns NaN unless exactly two faces claim the edge, which is the honest
+// answer in the cases where they don't: an edge running *through* a merged
+// face has no dihedral to report (its two triangles are why the face merged
+// in the first place), and with vertices hidden, local and non-local faces
+// can overlap enough for three or more to share an edge, leaving no single
+// well-defined pair.
+function edgeDihedralDeg(i, j) {
+  if (!state._faces) return NaN;
+  const touching = [];
+  for (const face of state._faces) {
+    const vs = face.vertices;
+    for (let k = 0; k < vs.length; k++) {
+      const a = vs[k], b = vs[(k + 1) % vs.length];
+      if ((a === i && b === j) || (a === j && b === i)) { touching.push(vs); break; }
+    }
+    if (touching.length > 2) return NaN;
+  }
+  if (touching.length !== 2) return NaN;
+  const n1 = facePlaneNormal(touching[0]), n2 = facePlaneNormal(touching[1]);
+  if (!n1 || !n2) return NaN;
+  // Both normals point outward, so the angle between them is the amount the
+  // surface turns at the edge - the interior dihedral is its supplement.
+  return 180 - Math.acos(Math.max(-1, Math.min(1, dot3(n1, n2)))) * 180 / Math.PI;
+}
+
 // English polygon names, indexed by side count (index 0-2 unused). Beyond
 // icosagon (20 sides) there's no common single-word English name in
 // everyday use, so callers should fall back to "N-gon" past this table.
