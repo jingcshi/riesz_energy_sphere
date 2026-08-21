@@ -159,5 +159,5 @@ const residualChartCanvas = document.getElementById("residualChart");
 const { ctx: residualChartCtx, resize: resizeResidualChart } = setupChartCanvas(residualChartCanvas);
 
 function drawResidualChart() {
-  renderChart(residualChartCanvas, residualChartCtx, state._energyHistory, (pt) => pt.residual, { color: "#a5d6ff", log: true, floor: 1e-14 });
+  renderChart(residualChartCanvas, residualChartCtx, state._energyHistory, (pt) => pt.residual, { color: "#ffa657", log: true, floor: 1e-14 });
 }

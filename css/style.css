@@ -455,9 +455,13 @@ code {
 /* ---------- energy chart ---------- */
 /* V | E | F | chi counts - four equal cells so the numbers line up in a row
    regardless of digit count, rather than reflowing as N grows. */
+/* 2x2 rather than 1x4: a quarter of the panel width is only ~34px, which a
+   five-digit count plus an amber "+n" already crowds. Two columns of wider
+   cells cost nothing in height, since the extra row is paid for by laying
+   each cell's label and value side by side instead of stacking them. */
 .euler-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
@@ -466,10 +470,10 @@ code {
 }
 .euler-cell {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 6px 0;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 0;
   background: #0d1117;
 }
 .euler-label {

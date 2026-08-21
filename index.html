@@ -25,8 +25,8 @@
 
     <div class="section-title">Parameters</div>
     <div class="control">
-      <label>N (points)<span class="val" id="nVal">40</span></label>
-      <input type="range" id="nSlider" min="1" max="100" step="1" value="40">
+      <label>N (points)<span class="val" id="nVal">24</span></label>
+      <input type="range" id="nSlider" min="1" max="100" step="1" value="24">
     </div>
 
     <div class="control">
@@ -99,7 +99,7 @@
         <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
         <span class="canvas-control-label" id="zoomVal">100%</span>
       </div>
-      <div class="canvas-control-row" title="Sphere opacity &mdash; how much rear vertices, edges and faces fade and shrink relative to front ones">
+      <div class="canvas-control-row" title="Sphere opacity &mdash; the fraction of light the ball absorbs across one diameter. At 100% the rear hemisphere is blocked entirely.">
         <svg class="canvas-control-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="12" height="12" rx="1.5"></rect>
           <rect x="9" y="9" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"></rect>
@@ -345,10 +345,21 @@
           canvas, scales the view about its centre only, with no panning.
         </p>
         <p>
-          Below it, sphere opacity sets how much rear vertices, edges and faces
-          fade and shrink relative to front ones. Fully transparent shows
-          everything equally; fully opaque means the sphere genuinely blocks
-          whatever is directly behind it, rather than merely dimming it.
+          Below it, sphere opacity treats the sphere as a ball of absorbing
+          medium and reads as the fraction of light it absorbs across one full
+          diameter. Fully transparent shows everything equally, front and back,
+          which hides nothing but makes the layering illegible. Fully opaque
+          blocks the entire rear hemisphere, as an opaque ball does &mdash; so
+          geometry crossing the silhouette simply stops there. In between,
+          anything behind the sphere dims exponentially with how much of the
+          ball the light had to cross to reach you, which is why a point just
+          inside the rim stays legible long after the antipode has gone.
+        </p>
+        <p>
+          The front hemisphere has nothing in front of it, so strictly it
+          shouldn't dim at all. It's faded anyway, by the same slider: that's
+          aerial perspective rather than optics, and without it the near
+          geometry loses all sense of depth.
         </p>
         <p>
           The <b>Shape</b> control decides how both the edge and face layers are

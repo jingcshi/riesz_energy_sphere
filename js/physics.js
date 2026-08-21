@@ -2,7 +2,10 @@
 
 // ---------- shared state ----------
 const state = {
-  N: 40,
+  // Overwritten at init from the N slider's own value, which is the single
+  // source of truth for the startup configuration - a literal here would be
+  // free to drift out of step with the markup without anything noticing.
+  N: 0,
   p: 1.0,
   seed: 1,
   speed: 1.0,
@@ -22,11 +25,11 @@ const state = {
   maxForce: 0,
   viewMatrix: matMultiply(rotationY(0.5), rotationX(-0.3)), // initial orientation, matches old rotX=-0.3/rotY=0.5
   zoom: 1.0, // origin-centered scale multiplier, no translation
-  // 0 (fully transparent - front/back equally clear) .. 1 (fully opaque -
-  // directly-rear elements completely invisible). Default 0.65 reproduces
-  // the original (pre-slider) fixed face fade exactly, as the closest
-  // single-knob match across faces/edges/vertices - see geometry.js's
-  // depthWithOpacity.
+  // Fraction of light the ball absorbs across one full diameter: 0 (fully
+  // transparent - front and back equally clear) .. 1 (fully opaque - the
+  // whole rear hemisphere blocked). Also drives a non-physical aerial fade
+  // over the front hemisphere - see geometry.js's depthWithOpacity. Also
+  // overwritten at init, from the slider.
   sphereOpacity: 0.65,
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
   _energyHistory: [],

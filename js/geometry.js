@@ -50,16 +50,38 @@ function project(pt, cx, cy, scale) {
 // every depth-fade/blend formula in render.js/edges.js, this remaps the raw
 // depth (0=back..1=front) each of them already takes as input, and every
 // downstream alpha/colour/radius formula keeps working unmodified. At
-// opacity=1 it's the identity (depth passes through unchanged), and every
-// element's own alpha formula is zero-floored at depth=0, so a directly-
-// rear element is genuinely invisible - "opaque" means the sphere actually
-// blocks the far side, not just fades it. At opacity=0 it always returns 1
-// ("as if front"), so every element renders at full clarity/size regardless
-// of true depth - nothing is lost, but front/back layering becomes
-// illegible. Intermediate values interpolate between those extremes.
+// opacity=0 it returns 1 ("as if front") for everything, so every element
+// renders at full clarity/size regardless of true depth - nothing is hidden,
+// but front/back layering becomes illegible.
+//
+// Above 0 the sphere is treated as what it looks like: a ball of absorbing
+// medium. Two things follow, and they apply to different hemispheres.
+//
+// Nothing lies between the eye and a point on the *front* hemisphere, so
+// optically it shouldn't be attenuated at all. The linear ramp kept here for
+// it is therefore frank artistic licence - aerial perspective, the haze that
+// makes distant things read as distant - and it's what makes the front-face
+// depth ordering legible at all.
+//
+// A point on the *rear* hemisphere is seen through the ball, so Beer-Lambert
+// applies: transmittance decays exponentially in the path length through the
+// medium. Under the orthographic projection here that path length is exactly
+// 2|z|, since the view ray leaves a rear point at z and exits the front
+// surface at -z. Reading the slider as the fraction absorbed across one full
+// diameter (L=2) pins the extinction coefficient, and the whole exponential
+// collapses to (1-op)^|z| - no exp() needed, and at opacity=1 it is
+// identically zero over the entire rear hemisphere. That is the point: an
+// opaque ball hides everything behind it, not merely the antipode, and the
+// hard cut this leaves at the silhouette is what an opaque ball actually
+// looks like rather than an artifact.
+//
+// The two branches meet continuously at the limb for every opacity below 1.
 function depthWithOpacity(rawDepth) {
   const op = state.sphereOpacity;
-  return 1 - op * (1 - rawDepth);
+  const aerial = 1 - op * (1 - rawDepth);
+  if (rawDepth >= 0.5) return aerial; // front hemisphere: nothing in the way
+  const absZ = 1 - 2 * rawDepth;      // path length / 2, i.e. |z|
+  return (1 - op / 2) * Math.pow(1 - op, absZ);
 }
 
 // Spherical linear interpolation between two unit vectors, tracing the great

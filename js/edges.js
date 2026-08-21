@@ -116,9 +116,10 @@ function computeEdges() {
   return edges;
 }
 
-// Zero floor by design: at full sphere opacity (depthWithOpacity(0) = 0)
-// a directly-rear edge endpoint must be completely invisible, not just
-// dimmed - "opaque" should mean the sphere genuinely blocks it.
+// Zero floor by design: at full sphere opacity depthWithOpacity returns 0
+// across the whole rear hemisphere, so an edge endpoint behind the sphere
+// must come out completely invisible rather than merely dimmed - "opaque"
+// should mean the sphere genuinely blocks it.
 function depthAlpha(z) {
   const depth = depthWithOpacity((z + 1) / 2); // 0 (back) .. 1 (front)
   return depth * 0.56;

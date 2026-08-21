@@ -207,6 +207,62 @@ function hslToRgb(h, s, l) {
   return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
 
+// Latitude/longitude wireframe. It used to be stroked at one flat alpha for
+// the whole sphere, which made it the one layer that ignored sphere opacity
+// entirely - the rear half of the grid stayed just as visible at 100% as at
+// 0%, so an "opaque" sphere was still transparently gridded.
+//
+// Depth-fading it needs per-segment alpha, and a stroke() per segment would
+// be ~700 draw calls a frame. Instead each segment is filed into one of
+// GRID_DEPTH_LEVELS paths by its own depth, and each path is stroked once, so
+// the whole grid costs a fixed dozen calls however finely it's subdivided.
+// Quantizing is invisible here: the levels are 0.18/11 apart in alpha on a
+// line that's barely there to begin with.
+const GRID_DEPTH_LEVELS = 12;
+const GRID_ALPHA = 0.18;
+
+function drawSphereWireframe(cx, cy, scale) {
+  const NLAT = 6, NLON = 10, SEG = 48;
+  const levels = [];
+  for (let b = 0; b < GRID_DEPTH_LEVELS; b++) levels.push(new Path2D());
+
+  // `pointAt(s)` walks one closed curve; consecutive samples become one
+  // segment, filed by the depth of its midpoint.
+  const addCurve = (pointAt) => {
+    let prev = pointAt(0);
+    for (let s = 1; s <= SEG; s++) {
+      const cur = pointAt(s);
+      const depth = depthWithOpacity(((prev.z + cur.z) / 2 + 1) / 2);
+      const b = Math.round(depth * (GRID_DEPTH_LEVELS - 1));
+      levels[b].moveTo(prev.x, prev.y);
+      levels[b].lineTo(cur.x, cur.y);
+      prev = cur;
+    }
+  };
+
+  for (let k = 1; k < NLAT; k++) {
+    const lat = Math.PI * (k / NLAT - 0.5);
+    const rr = Math.cos(lat), zz = Math.sin(lat);
+    addCurve((s) => {
+      const lon = 2 * Math.PI * s / SEG;
+      return project(rotate([rr * Math.cos(lon), rr * Math.sin(lon), zz], state.viewMatrix), cx, cy, scale);
+    });
+  }
+  for (let k = 0; k < NLON; k++) {
+    const lon = Math.PI * k / NLON;
+    addCurve((s) => {
+      const lat = Math.PI * (s / SEG - 0.5) * 2;
+      return project(rotate([Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)], state.viewMatrix), cx, cy, scale);
+    });
+  }
+
+  ctx.lineWidth = 1;
+  for (let b = 1; b < GRID_DEPTH_LEVELS; b++) { // level 0 is fully transparent
+    ctx.strokeStyle = `rgba(139,148,158,${GRID_ALPHA * b / (GRID_DEPTH_LEVELS - 1)})`;
+    ctx.stroke(levels[b]);
+  }
+}
+
 function draw() {
   const wrap = document.getElementById("canvasWrap");
   const w = wrap.clientWidth, h = wrap.clientHeight;
@@ -217,33 +273,7 @@ function draw() {
   const cx = w / 2, cy = h / 2;
   const scale = Math.min(w, h) * 0.36 * state.zoom; // origin-centered zoom only, no translation
 
-  // wireframe sphere: latitude & longitude lines
-  ctx.strokeStyle = "rgba(139,148,158,0.18)";
-  ctx.lineWidth = 1;
-  const NLAT = 6, NLON = 10, SEG = 48;
-  for (let k = 1; k < NLAT; k++) {
-    const lat = Math.PI * (k / NLAT - 0.5);
-    const rr = Math.cos(lat), zz = Math.sin(lat);
-    ctx.beginPath();
-    for (let s = 0; s <= SEG; s++) {
-      const lon = 2 * Math.PI * s / SEG;
-      const p3 = rotate([rr * Math.cos(lon), rr * Math.sin(lon), zz], state.viewMatrix);
-      const pr = project(p3, cx, cy, scale);
-      if (s === 0) ctx.moveTo(pr.x, pr.y); else ctx.lineTo(pr.x, pr.y);
-    }
-    ctx.stroke();
-  }
-  for (let k = 0; k < NLON; k++) {
-    const lon = Math.PI * k / NLON;
-    ctx.beginPath();
-    for (let s = 0; s <= SEG; s++) {
-      const lat = Math.PI * (s / SEG - 0.5) * 2;
-      const p3 = rotate([Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)], state.viewMatrix);
-      const pr = project(p3, cx, cy, scale);
-      if (s === 0) ctx.moveTo(pr.x, pr.y); else ctx.lineTo(pr.x, pr.y);
-    }
-    ctx.stroke();
-  }
+  drawSphereWireframe(cx, cy, scale);
 
   // Always compute the neighbour graph (cheap at N<=100) so state._nearest
   // (r0 per vertex) is available for the hover panel even when edges aren't
@@ -323,9 +353,10 @@ function draw() {
       // Depth-fade toward fully transparent, same idea as the vertex
       // tension colouring: a rear face reads as "further away" rather than
       // competing on equal footing with whatever's in front of it. At full
-      // sphere opacity (depthWithOpacity(0) = 0) a directly-rear face is
-      // completely invisible, not just dimmed - "opaque" should mean the
-      // sphere genuinely blocks it, not merely fades it.
+      // sphere opacity every rear face comes out at zero, so "opaque" means
+      // the sphere genuinely blocks the far side rather than merely fading
+      // it. A face straddling the silhouette is judged by its average depth
+      // and so switches over all at once, the one place that shows.
       const depth = depthWithOpacity(Math.max(0, Math.min(1, (avgZ + 1) / 2)));
       ctx.globalAlpha = depth;
       ctx.fillStyle = faceFillColor(sides);
@@ -442,8 +473,8 @@ function draw() {
     const bC = bg[2] + (tension[2] - bg[2]) * depth;
 
     // Same full-block-at-full-opacity contract as faces/edges: at
-    // depth=0 (depthWithOpacity(0)=0 when sphereOpacity=1) the vertex is
-    // completely invisible, not merely small and dim.
+    // sphereOpacity=1 any vertex behind the silhouette comes out completely
+    // invisible, not merely small and dim.
     ctx.globalAlpha = depth;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, radius, 0, 2 * Math.PI);
