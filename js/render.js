@@ -14,20 +14,60 @@ function resizeCanvas() {
 window.addEventListener("resize", resizeCanvas);
 
 // ---------- vertex tension colouring ----------
-// Net-force magnitude -> colour, on a log scale: red at >=1, orange at 1e-1,
-// yellow at 1e-2, mint at 1e-3, pale (matching --text) at <=1e-4. Colours are
-// plain RGB triples so we can linearly blend both across decades and, below,
-// toward the existing depth-based blue as a point recedes into the background.
+// Vertex tension -> colour on a log scale, four decades wide: red at the top,
+// then orange, yellow, mint, and pale (matching --text) at the bottom.
+// Colours are plain RGB triples so we can linearly blend both across decades
+// and, below, toward the existing depth-based blue as a point recedes into
+// the background.
+//
+// The input is a *ratio*, not a force: each vertex's scale-free residual
+// (|grad_i Psi|, the same quantity the Statistics panel reports) divided by
+// the largest residual this landscape has held so far. So red means "as tense
+// as this configuration ever was" and pale means "four or more decades
+// quieter than that" - a genuine convergence proxy at every exponent.
+//
+// Two earlier candidates both fail, and it's worth recording why:
+//   * Raw net force (what this used to take) is not scale-free at all. The
+//     physical force's own magnitude grows like e^O(p), so at p=25 every
+//     vertex sits at ~1e+8 and pins to red for the whole run - fully
+//     converged configurations included.
+//   * The absolute residual is scale-free but badly distributed: measured
+//     across runs it starts near 1e+1 for p>=6 yet only 2e-1 at p=1, while
+//     converged values range over 1e-4 (p=0, p>64) down to 5e-9 (p=6). No
+//     fixed four-decade window covers both ends at every p - anchoring the
+//     pale end at 1e-4 makes p=1 go pale by step 10 of 237, and widening the
+//     ramp stops p=0 and high p reaching pale at all.
+// Measuring against the run's own peak sidesteps that entirely: it needs no
+// knowledge of where a given exponent's precision floor happens to sit.
 const FORCE_COLOR_STOPS = [
-  { logF: 0, rgb: [239, 68, 68] },    // red
+  { logF: 0, rgb: [239, 68, 68] },    // red   - at this landscape's peak tension
   { logF: -1, rgb: [249, 115, 22] },  // orange
   { logF: -2, rgb: [234, 179, 8] },   // yellow
   { logF: -3, rgb: [110, 231, 183] }, // mint
-  { logF: -4, rgb: [201, 209, 217] }, // pale (var(--text))
+  { logF: -4, rgb: [201, 209, 217] }, // pale (var(--text)) - 4+ decades below peak
 ];
 
-function forceColor(mag) {
-  const logF = Math.max(-4, Math.min(0, Math.log10(Math.max(mag, 1e-12))));
+// Vertex i's scale-free residual, in absolute terms. state._forces is in
+// physical units below P_PHYSICAL_MAX and already normalized above it, so the
+// conversion factor has to come from physics.js rather than being assumed.
+function vertexResidual(i) {
+  if (!state._forces || !state._forces[i]) return 0;
+  const f = state._forces[i];
+  return Math.hypot(f[0], f[1], f[2]) * state._residualScale;
+}
+
+// ...and the same thing as a fraction of the landscape's peak tension. The
+// peak is maxed with the current residual so this is still well defined on
+// the first frame after a reset or a p change, before any step has run.
+function vertexTensionRatio(i) {
+  const peak = Math.max(state._residualPeak || 0, state._residual || 0);
+  return peak > 0 ? vertexResidual(i) / peak : 0;
+}
+
+// `ratio` is tension relative to the landscape's peak, so it never exceeds 1
+// and the clamp below only ever bites at the pale end.
+function forceColor(ratio) {
+  const logF = Math.max(-4, Math.min(0, Math.log10(Math.max(ratio, 1e-12))));
   for (let k = 0; k < FORCE_COLOR_STOPS.length - 1; k++) {
     const a = FORCE_COLOR_STOPS[k], b = FORCE_COLOR_STOPS[k + 1];
     if (logF <= a.logF && logF >= b.logF) {
@@ -351,8 +391,7 @@ function draw() {
     const radius = 3.5 + depth * 3.5;
 
     const bg = hslToRgb(212, 0.9, 0.45 + depth * 0.45); // existing depth-based blue
-    const mag = state._forces ? Math.hypot(...state._forces[pt.idx]) : 0;
-    const tension = forceColor(mag);
+    const tension = forceColor(vertexTensionRatio(pt.idx));
     // background blue in the distance, tension colour up front
     const rC = bg[0] + (tension[0] - bg[0]) * depth;
     const gC = bg[1] + (tension[1] - bg[1]) * depth;

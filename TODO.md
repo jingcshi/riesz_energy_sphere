@@ -109,6 +109,24 @@
      scale-free force threshold alone would *not* have worked, because the
      achievable residual floor itself degrades with p (~1e-9 at p=1, ~1e-8
      at p=6, ~2e-6 at p=25). p=25/N=40 now converges in ~2800 steps.
+- **Vertex tension colouring made scale-free**, as a follow-up to the above:
+  it was still reading raw net-force magnitude against fixed 1e0..1e-4 stops,
+  so at p=25 (physical force ~1e+8 throughout) every vertex pinned to red for
+  the entire run, converged configurations included — the colouring had
+  stopped being a convergence proxy at exactly the exponents the log-domain
+  work opened up. It now takes each vertex's residual as a *fraction of the
+  peak residual this landscape has held* (`vertexTensionRatio()` in
+  `render.js`, `state._residualPeak`), so red means "as tense as it ever was"
+  and pale means "four or more decades quieter". Measured across p=0/1/6/25/200
+  and both metrics, every run now traverses red→...→pale and ends pale.
+  The two simpler candidates both fail and it's recorded in the code why: raw
+  force isn't scale-free at all, and the *absolute* residual is scale-free but
+  badly distributed (start values 2e-1 at p=1 vs ~1e+1 for p≥6; converged
+  values from 1e-4 at p=0/p>64 down to 5e-9 at p=6), so no fixed four-decade
+  window covers both ends at every p. The peak is updated from accepted steps
+  only, since a trial point mid-backtrack can put two vertices almost on top
+  of each other and permanently inflate it. Vertex hover also now reports
+  Residual alongside Net force, so the colour has a visible number behind it.
 - **Min separation** added to the statistics panel (the closest pair's
   angular separation), free from the pass above. This is the quantity the
   Tammes problem maximizes, and the one that makes high p meaningful to look

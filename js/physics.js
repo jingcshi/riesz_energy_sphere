@@ -195,6 +195,8 @@ function computeEnergyAndForce() {
     state._pointEnergy = new Array(n).fill(NaN);
     state._forceUnitsRelative = false;
     state._energyRelative = false;
+    state._residualScale = 1;
+    state._residual = 0;
     state.maxForce = 0;
     return state._forces;
   }
@@ -214,6 +216,8 @@ function computeEnergyAndForce() {
     state._pointEnergy = pointEnergy;
     state._forceUnitsRelative = false;
     state._energyRelative = false;
+    state._residualScale = 1;
+    state._residual = 0;
     state.maxForce = 0;
     return forces;
   }
@@ -374,6 +378,12 @@ function computeEnergyAndForce() {
   }
   state._dMinEff = dMinEff; // consumed by pairForceMagnitude's relative branch
   state._sumW = accum;
+  // Multiply any magnitude drawn from state._forces by this to get it in
+  // scale-free residual units (|grad Psi|). Needed because those forces are
+  // physical below P_PHYSICAL_MAX and already normalized above it, while the
+  // vertex tension colouring wants one consistent scale at every p. Works
+  // out to 1/(p*E) in the physical branch and exactly 1 in the relative one.
+  state._residualScale = isLog ? 1 : 1 / (scale * accum);
   state._forces = forces;
   state._pointEnergy = pointEnergy;
 
@@ -493,6 +503,12 @@ function resetConvergenceTracking() {
   state._stallCount = 0;
   state._bestObjective = Infinity;
   state.stalled = false;
+  // Peak residual for the current landscape, i.e. the most tension the
+  // system has held since the last change of N/seed/p/metric. The vertex
+  // colouring measures against this (see render.js) so that "red" means
+  // as-tense-as-it-ever-was rather than a fixed number that only lands
+  // usefully at one exponent.
+  state._residualPeak = 0;
 }
 resetConvergenceTracking();
 
@@ -530,6 +546,12 @@ function stepPhysics() {
   } else {
     state._trust = Math.max((dt / dt0) * 0.8, 1e-3);
   }
+
+  // Accepted states only. A trial point mid-backtrack can momentarily throw
+  // two vertices almost on top of each other, and at large p that near
+  // collision's residual would dwarf anything real - inflating the peak
+  // permanently and washing the vertex colouring pale for the rest of the run.
+  if (state._residual > state._residualPeak) state._residualPeak = state._residual;
 
   const obj = armijoObjective();
   if (obj < state._bestObjective - STALL_REL * (1 + Math.abs(obj))) {

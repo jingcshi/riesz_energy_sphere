@@ -151,12 +151,18 @@ function updateHover(projectedPoints, edgePaths, facePaths) {
     const mag = state._forces ? Math.hypot(...state._forces[i]) : NaN;
     const r0 = state._nearest ? state._nearest[i] : NaN;
     const energy = state._pointEnergy ? state._pointEnergy[i] : NaN;
+    // Residual as well as force: it's the scale-free one, and the one this
+    // vertex's colour is actually derived from (as a fraction of the
+    // landscape's peak - see render.js), so without it the colour has no
+    // visible number behind it at high p where the force reads ~1e+8.
+    const residual = vertexResidual(i);
     hoverTooltip.innerHTML = `
       <div class="hover-title">Vertex ${i}</div>
       <div class="hover-row"><span>Degree</span><span>${degree}</span></div>
-      <div class="hover-row"><span>Net force</span><span>${mag.toExponential(3)}</span></div>
+      <div class="hover-row"><span>Net force${state._forceUnitsRelative ? " (rel.)" : ""}</span><span>${mag.toExponential(3)}</span></div>
+      <div class="hover-row"><span>Residual</span><span>${residual.toExponential(3)}</span></div>
       <div class="hover-row"><span>r&#8320; (nearest)</span><span>${fmt(r0)}</span></div>
-      <div class="hover-row"><span>Potential energy</span><span>${fmt(energy)}</span></div>`;
+      <div class="hover-row"><span>Potential energy${state._energyRelative ? " (rel.)" : ""}</span><span>${fmt(energy)}</span></div>`;
   } else {
     const { i, j, nonLocal } = best;
     const u = state.points[i], v = state.points[j];

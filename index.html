@@ -206,10 +206,16 @@
           using the current N and seed.
         </p>
         <p>
-          Each point is coloured by its current net force, from pale (settled) through
+          Each point is coloured by its current tension, from pale (settled) through
           mint, yellow, and orange to red (still moving fast), fading toward the
-          background blue with depth. While paused, hovering a front-facing vertex or
-          edge shows its numeric details.
+          background blue with depth. Tension is measured <i>relative to the most
+          this configuration has ever held</i>, over four decades &mdash; so red means
+          "as tense as it ever was" and pale means "at least ten thousand times
+          quieter". It has to be a ratio rather than a raw force, because the force's
+          own scale grows roughly like e<sup>p</sup>: at p=25 every vertex carries a
+          net force around 1e+8 even once fully converged, which as an absolute
+          number would read as permanently red. While paused, hovering a front-facing
+          vertex or edge shows its numeric details.
         </p>
         <p>
           Clicking a "Degree x" row in the statistics panel's histogram cycles
