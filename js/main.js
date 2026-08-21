@@ -66,8 +66,12 @@ const speedVal = document.getElementById("speedVal");
 const playBtn = document.getElementById("playBtn");
 const resetBtn = document.getElementById("resetBtn");
 const energyVal = document.getElementById("energyVal");
+const energyLabel = document.getElementById("energyLabel");
 const stepVal = document.getElementById("stepVal");
 const forceVal = document.getElementById("forceVal");
+const forceLabel = document.getElementById("forceLabel");
+const residualVal = document.getElementById("residualVal");
+const minSepVal = document.getElementById("minSepVal");
 const degreeHistogramEl = document.getElementById("degreeHistogram");
 const faceHistogramEl = document.getElementById("faceHistogram");
 const edgeButtons = document.querySelectorAll("#edgeSegmented .seg");
@@ -103,6 +107,7 @@ pSlider.addEventListener("input", () => {
   state.p = P_VALUES[parseInt(pSlider.value, 10)];
   pVal.textContent = formatP(state.p);
   state._trust = 1.0; // landscape stiffness changed with p - retune step size
+  resetConvergenceTracking(); // ...and the objective it was being compared against
   updatePInfinityUI();
   computeEnergyAndForce();
 });
@@ -140,6 +145,7 @@ metricButtons.forEach((btn) => {
     btn.classList.add("active");
     state.metric = btn.dataset.metric;
     state._trust = 1.0; // landscape stiffness changed with metric - retune step size
+    resetConvergenceTracking();
     computeEnergyAndForce();
   });
 });
@@ -286,6 +292,23 @@ faceHistogramEl.addEventListener("mousedown", (e) => {
 // accumulator lets non-integer speeds (e.g. 0.2x) average out correctly.
 const MAX_SUBSTEPS_PER_FRAME = 50;
 const CONVERGED_FORCE = 1e-4;
+// Two independent stopping conditions, because one alone can't cover the p
+// range: the force threshold is absolute, so it's unreachable at large p
+// where a fully-settled configuration still reports maxForce ~1e+3 (the
+// force's own scale grows like e^O(p)), while `stalled` - the objective
+// having stopped improving to within double precision - catches exactly that
+// case. See physics.js for why a scale-free force threshold can't replace
+// either of them.
+function isConverged() {
+  return state.maxForce <= CONVERGED_FORCE || state.stalled;
+}
+
+// Large energies (p past ~15 puts E in the millions and up) read better in
+// exponential form than as a long fixed-point string.
+function formatEnergy(e) {
+  return Math.abs(e) >= 1e7 ? e.toExponential(4) : e.toFixed(4);
+}
+
 function tick() {
   // Inertial spin: only while the user isn't actively dragging (which
   // drives the view directly via the mousemove handler above).
@@ -296,7 +319,7 @@ function tick() {
   if (state.playing) {
     state._stepAccum += state.speed;
     let iters = 0;
-    while (state._stepAccum >= 1 && state.maxForce > CONVERGED_FORCE && iters < MAX_SUBSTEPS_PER_FRAME) {
+    while (state._stepAccum >= 1 && !isConverged() && iters < MAX_SUBSTEPS_PER_FRAME) {
       stepPhysics();
       state._stepAccum -= 1;
       iters++;
@@ -304,12 +327,29 @@ function tick() {
     // Genuinely stop, not just skip stepping: flips Play/Pause back to Play
     // so the button reflects the true (paused) state instead of silently
     // idling as "Pause" forever once the configuration has settled.
-    if (state.maxForce <= CONVERGED_FORCE) setPlaying(false);
+    if (isConverged()) setPlaying(false);
   }
   draw();
   stepVal.textContent = state.step;
-  energyVal.textContent = state.energy.toFixed(4);
+  // Energy is shown in log form once it overflows double precision, which it
+  // does past roughly p=250 - the log is the quantity the integrator actually
+  // compares anyway (see physics.js), so nothing is lost but the label.
+  if (Number.isFinite(state.energy)) {
+    energyLabel.textContent = "Energy";
+    energyVal.textContent = formatEnergy(state.energy);
+  } else if (Number.isFinite(state._logEnergy)) {
+    energyLabel.textContent = "log Energy";
+    energyVal.textContent = state._logEnergy.toFixed(4);
+  } else {
+    energyLabel.textContent = "Energy";
+    energyVal.textContent = "\u2014";
+  }
+  forceLabel.textContent = state._forceUnitsRelative ? "Max force (rel.)" : "Max force";
   forceVal.textContent = state.maxForce.toExponential(2);
+  residualVal.textContent = Number.isFinite(state._residual) ? state._residual.toExponential(2) : "\u2014";
+  minSepVal.textContent = Number.isFinite(state._minSeparation)
+    ? (state._minSeparation * 180 / Math.PI).toFixed(3) + "\u00b0"
+    : "\u2014";
   updateDegreeHistogram();
   updateFaceHistogram();
   drawEnergyChart();
@@ -318,6 +358,9 @@ function tick() {
 }
 
 // ---------- init ----------
+// Derived from P_VALUES rather than trusted from the markup, so extending the
+// p scale can't silently leave the top of it unreachable.
+pSlider.max = String(P_VALUES.length - 1);
 state.N = parseInt(nSlider.value, 10);
 state.p = P_VALUES[parseInt(pSlider.value, 10)];
 state.seed = parseInt(seedInput.value, 10);

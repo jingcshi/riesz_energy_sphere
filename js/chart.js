@@ -125,8 +125,17 @@ function renderChart(canvas, ctx, hist, getValue, { color, log = false, floor = 
 const energyChartCanvas = document.getElementById("energyChart");
 const { ctx: energyChartCtx, resize: resizeEnergyChart } = setupChartCanvas(energyChartCanvas);
 
+// At large p the energy overflows double precision, so plot log E instead
+// once that happens - an unplottable Infinity would blank the chart out
+// entirely. The choice is made per-render from the latest sample rather than
+// per-sample, so the curve never mixes the two scales in one line.
+const energyChartTitle = document.getElementById("energyChartTitle");
 function drawEnergyChart() {
-  renderChart(energyChartCanvas, energyChartCtx, state._energyHistory, (pt) => pt.energy, { color: "#58a6ff" });
+  const hist = state._energyHistory;
+  const last = hist && hist.length ? hist[hist.length - 1] : null;
+  const useLog = last !== null && !Number.isFinite(last.energy) && Number.isFinite(last.logEnergy);
+  if (energyChartTitle) energyChartTitle.textContent = useLog ? "log Energy vs. step" : "Energy vs. step";
+  renderChart(energyChartCanvas, energyChartCtx, hist, (pt) => (useLog ? pt.logEnergy : pt.energy), { color: "#58a6ff" });
 }
 
 // ---------- max-force-vs-step chart ----------

@@ -32,17 +32,16 @@ const state = {
 // ---------- p slider domain ----------
 // A pseudo-logarithmic scale: fine steps where the small-N phase transitions
 // live (Schwartz's N=5 transition is at p~15, well inside the 0.5-step
-// band), coarsening as p grows. Capped at 25, not pushed further toward
-// p=Infinity as originally sketched: R_MIN=1e-4 floors the *magnitude* of a
-// near-collision, but `Math.pow(rEff, -(p+1))` still overflows double
-// precision once p is large enough (verified numerically stability starts
-// degrading around p~25, well before actual overflow - the landscape is
-// already ill-conditioned enough there that maxForce stalls around 1e+3
-// without converging). Rather than chase that with an arbitrary-precision
-// number library (massive overkill for a UI slider), the range simply stops
-// at the point where the existing integrator is still reliable. Built by
-// index rather than repeated float addition to avoid step-accumulation
-// drift (e.g. a naive 0.1+0.1+0.1 landing on 1.7000000000000002).
+// band), coarsening as p grows, then a geometric tail out to 1000. The tail
+// used to stop at 25 because summing raw d^-p terms lost all conditioning
+// past there (maxForce stalled around 1e+3 and never converged); the
+// log-domain reformulation below removed that ceiling, so what limits the
+// range now is only that the p -> Infinity limit becomes numerically
+// indistinguishable long before 1000 - the softmin's error decays like
+// log(pairs)/p, so p=1000 is already within ~1% of the Tammes optimum for
+// N in the hundreds. Built by index rather than repeated float addition to
+// avoid step-accumulation drift (e.g. a naive 0.1+0.1+0.1 landing on
+// 1.7000000000000002).
 function buildPValues() {
   const vals = [];
   const pushRange = (from, to, step) => {
@@ -53,14 +52,19 @@ function buildPValues() {
   pushRange(2.2, 6, 0.2);   // 20 values
   pushRange(6.5, 16, 0.5);  // 20 values (covers the N=5 TBP->square-pyramid transition at p~15.05)
   pushRange(17, 25, 1);     // 9 values
+  // Geometric tail. 64 is P_PHYSICAL_MAX, the last p whose *physical* force
+  // is representable in double precision, so it gets its own stop rather
+  // than being straddled.
+  vals.push(30, 36, 44, 52, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000);
   vals.push(Infinity);      // the Tammes (max-min distance) limit - see TODO.md
-  return vals; // 71 total
+  return vals; // 88 total
 }
 const P_VALUES = buildPValues();
 const P_DEFAULT_INDEX = P_VALUES.indexOf(1.0); // Coulomb/Newtonian law
 
 function formatP(p) {
   if (p === Infinity) return "\u221e";
+  if (Number.isInteger(p) && p >= 10) return String(p); // the geometric tail: "100", not "100.0"
   return p.toFixed(p <= 2 ? 2 : 1);
 }
 
@@ -69,7 +73,14 @@ function formatP(p) {
 // the chart still shows the full step range, just coarser.
 const ENERGY_HISTORY_MAX = 4000;
 function pushEnergyHistory() {
-  state._energyHistory.push({ step: state.step, energy: state.energy, maxForce: state.maxForce });
+  // logEnergy is carried alongside energy so the chart has something
+  // plottable at p large enough that E itself overflows to Infinity.
+  state._energyHistory.push({
+    step: state.step,
+    energy: state.energy,
+    logEnergy: state._logEnergy,
+    maxForce: state.maxForce,
+  });
   if (state._energyHistory.length > ENERGY_HISTORY_MAX) {
     state._energyHistory = state._energyHistory.filter((_, idx) => idx % 2 === 0);
   }
@@ -92,9 +103,10 @@ function resetConfiguration() {
   state.points = randomPointsOnSphere(state.N, state.seed);
   state.step = 0;
   state._trust = 1.0; // fresh landscape (new N/seed) - don't carry over step-size tuning
+  resetConvergenceTracking();
   state._stepAccum = 0;
   computeEnergyAndForce(); // populate initial stats
-  state._energyHistory = [{ step: 0, energy: state.energy, maxForce: state.maxForce }];
+  state._energyHistory = [{ step: 0, energy: state.energy, logEnergy: state._logEnergy, maxForce: state.maxForce }];
 }
 
 // ---------- physics: projected gradient descent on Riesz / log energy ----------
@@ -106,11 +118,35 @@ function resetConfiguration() {
 //     K_p(d) = -ln(d)          for p = 0   (logarithmic / Fekete energy,
 //                                           the p -> 0 limit of Riesz energy)
 // K_p'(d) = -p d^{-(p+1)} for p>0, or -1/d for p=0; the restoring magnitude
-// used below is M(d) = -K_p'(d), i.e. p*d^-(p+1) or 1/d.
-function energyAndMagnitude(dEff, p) {
-  if (p <= 1e-9) return { e: -Math.log(dEff), m: 1 / dEff };
-  return { e: Math.pow(dEff, -p), m: p * Math.pow(dEff, -(p + 1)) };
-}
+// is M(d) = -K_p'(d), i.e. p*d^-(p+1) or 1/d.
+//
+// For p>0, computeEnergyAndForce() below does not evaluate those two
+// expressions directly. It works with the objective
+//     Psi = (1/p) * log E
+// instead, whose minimizers are identical (log is monotone and p>0) but
+// which is computable at any p: expanding it around the closest pair gives
+//     Psi = -log d_min + (1/p) * log( sum_ij (d_ij/d_min)^-p )
+// where every summand now lies in (0,1]. Two payoffs beyond not overflowing:
+//   * grad Psi = grad E / (p*E), i.e. the same direction field as the
+//     physical force scaled by one positive constant, so nothing about the
+//     descent trajectory changes at the p values that already worked.
+//   * as p -> Infinity the second term vanishes like log(pairs)/p, leaving
+//     Psi -> -log d_min. Minimizing the Riesz energy at large p therefore
+//     *is* maximizing the minimum separation - the Tammes problem - so the
+//     softmin the TODO proposes for p=Infinity is already this same code
+//     path with a large p, not a separate objective.
+
+// Above this p, the *reported* energy/force switch from physical units to
+// the dimensionless normalized gradient (see computeEnergyAndForce): the
+// physical force carries a factor p*d_min^-p, which overflows double once p
+// is large (worst case d_min = R_MIN = 1e-4 makes it ~e^(9.2p), i.e. finite
+// only to p ~ 76). Deliberately a fixed constant rather than a check on the
+// current d_min, so the displayed units can't flip back and forth mid-run
+// as a transient near-collision forms and resolves. Everything the
+// integrator does is unit-agnostic (dt is sized from the same force array
+// it displaces along, so any global rescaling cancels), so this only
+// affects what the panel shows.
+const P_PHYSICAL_MAX = 64;
 
 // Numerical care: the true restoring magnitude diverges as d -> 0, which is
 // correct in principle but not something a discrete integrator can step
@@ -153,18 +189,81 @@ function computeEnergyAndForce() {
   // would no-op even if it were somehow invoked anyway.
   if (state.p === Infinity) {
     state.energy = NaN;
+    state._logEnergy = NaN;
+    state._minSeparation = NaN;
     state._forces = pts.map(() => [0, 0, 0]);
     state._pointEnergy = new Array(n).fill(NaN);
+    state._forceUnitsRelative = false;
+    state._energyRelative = false;
     state.maxForce = 0;
     return state._forces;
   }
 
   const p = state.p;
+  const isLog = p <= 1e-9; // p=0: logarithmic (Fekete) energy, not a power law
   const spherical = state.metric === "spherical";
-  let energy = 0;
   const forces = new Array(n);
   const pointEnergy = new Array(n).fill(0); // per-vertex potential energy, for the hover info panel
   for (let i = 0; i < n; i++) forces[i] = [0, 0, 0];
+
+  if (n < 2) {
+    state.energy = 0;
+    state._logEnergy = -Infinity;
+    state._minSeparation = NaN;
+    state._forces = forces;
+    state._pointEnergy = pointEnergy;
+    state._forceUnitsRelative = false;
+    state._energyRelative = false;
+    state.maxForce = 0;
+    return forces;
+  }
+
+  // ---- pass 1: locate the closest pair ----
+  // Only the largest dot product is needed, and it settles both metrics at
+  // once: chord = sqrt(2-2*dot) and geodesic angle = acos(dot) are both
+  // monotone decreasing in dot, so the closest pair is the same pair either
+  // way. That makes this one multiply-add per pair plus a single sqrt/acos
+  // afterwards - far cheaper than pass 2, which also needs directions and a
+  // transcendental per pair. Two things consume it: the min-separation stat
+  // (the quantity of interest as p grows, and the one Tammes tables are
+  // written in), and the log-sum-exp shift below.
+  let maxDot = -2;
+  for (let i = 0; i < n; i++) {
+    const xi = pts[i];
+    for (let j = i + 1; j < n; j++) {
+      const xj = pts[j];
+      const d = xi[0] * xj[0] + xi[1] * xj[1] + xi[2] * xj[2];
+      if (d > maxDot) maxDot = d;
+    }
+  }
+  const minAngle = Math.acos(Math.max(-1, Math.min(1, maxDot)));
+  state._minSeparation = minAngle;
+  // The smallest *effective* (floored) separation, in the active metric's
+  // own units. This is the log-sum-exp shift: dividing every separation by
+  // it makes each pair's weight (d/dMin)^-p land in (0,1], so nothing
+  // overflows at any p, however large. It doesn't have to be the exact
+  // minimum for that to hold - any near-maximal term works as a shift - so
+  // deriving it from maxDot rather than from pass 2's own chord arithmetic
+  // is safe even if float rounding disagrees about a near-tie.
+  const dMinEff = spherical
+    ? Math.max(minAngle, THETA_MIN)
+    : Math.max(Math.sqrt(Math.max(0, 2 - 2 * maxDot)), R_MIN);
+
+  // ---- pass 2: energy and force ----
+  // For p>0 this accumulates the *relative* weights w = (d/dMin)^-p rather
+  // than the raw d^-p terms, i.e. everything is measured against the
+  // closest pair's contribution. Summing numbers in (0,1] instead of ones
+  // spanning 1e-8..1e13 is what makes large p work at all: the raw sum
+  // loses every distant pair to roundoff long before it overflows, and
+  // (worse) leaves the Armijo test in stepPhysics comparing energies whose
+  // difference is far below the sum's own noise floor. The true energy is
+  // recovered exactly afterwards as sumW * dMin^-p, in log form when that
+  // overflows.
+  //
+  // For p=0 there is no such structure (the energy is a sum of logs, not of
+  // powers, and can be negative), and no conditioning problem either, so
+  // `accum` there is simply the energy itself.
+  let accum = 0;
 
   for (let i = 0; i < n; i++) {
     const xi = pts[i];
@@ -210,8 +309,9 @@ function computeEnergyAndForce() {
 
         const theta = Math.acos(dot);
         const thetaEff = Math.max(theta, THETA_MIN);
-        const { e, m } = energyAndMagnitude(thetaEff, p);
-        energy += e;
+        const e = isLog ? -Math.log(thetaEff) : Math.pow(thetaEff / dMinEff, -p);
+        const m = isLog ? 1 / thetaEff : e / thetaEff;
+        accum += e;
         pointEnergy[i] += e; pointEnergy[j] += e;
         forces[i][0] += m * uix; forces[i][1] += m * uiy; forces[i][2] += m * uiz;
         forces[j][0] += m * ujx; forces[j][1] += m * ujy; forces[j][2] += m * ujz;
@@ -231,29 +331,74 @@ function computeEnergyAndForce() {
         }
 
         const rEff = Math.max(r, R_MIN); // magnitude only - direction above is exact
-        const { e, m } = energyAndMagnitude(rEff, p);
-        energy += e;
+        // e is the pair's relative weight (d/dMin)^-p for p>0, or its actual
+        // log-energy for p=0; m is the matching restoring magnitude, which
+        // for p>0 drops p as a common factor (reinstated in `scale` below)
+        // so that m = w/d rather than p*d^-(p+1).
+        const e = isLog ? -Math.log(rEff) : Math.pow(rEff / dMinEff, -p);
+        const m = isLog ? 1 / rEff : e / rEff;
+        accum += e;
         pointEnergy[i] += e; pointEnergy[j] += e;
         forces[i][0] += m * ux; forces[i][1] += m * uy; forces[i][2] += m * uz;
         forces[j][0] -= m * ux; forces[j][1] -= m * uy; forces[j][2] -= m * uz;
       }
     }
   }
-  state.energy = energy;
+  // ---- recover real units ----
+  // Everything above is in "relative to the closest pair" units for p>0.
+  // Undoing that is a single scalar per quantity:
+  //   E        = sumW * dMin^-p          (in log form: log sumW - p*log dMin)
+  //   F_phys   = A    * p * dMin^-p
+  //   F_norm   = A    / sumW             = -grad of (1/p)*log E
+  // F_norm and F_phys differ only by the positive scalar p*E, so they define
+  // the same descent direction - which is why switching between them at
+  // extreme p changes nothing about the trajectory, only the numbers shown.
+  let scale;
+  if (isLog) {
+    state.energy = accum;
+    state._logEnergy = NaN; // a sum of logs has no useful log form (it can be negative)
+    state._forceUnitsRelative = false;
+    state._energyRelative = false;
+    scale = 1;
+  } else {
+    const logDMin = Math.log(dMinEff);
+    state._logEnergy = Math.log(accum) - p * logDMin;
+    state.energy = Math.exp(state._logEnergy); // Infinity past ~e709; the panel falls back to log E
+    state._forceUnitsRelative = p > P_PHYSICAL_MAX;
+    state._energyRelative = !Number.isFinite(state.energy);
+    scale = state._forceUnitsRelative ? 1 / accum : p * Math.exp(-p * logDMin);
+    // Per-point energies follow the total: real units where the total is
+    // representable, otherwise each point's share of it.
+    const pointScale = state._energyRelative ? 1 / accum : Math.exp(-p * logDMin);
+    for (let i = 0; i < n; i++) pointEnergy[i] *= pointScale;
+  }
+  state._dMinEff = dMinEff; // consumed by pairForceMagnitude's relative branch
+  state._sumW = accum;
   state._forces = forces;
   state._pointEnergy = pointEnergy;
-  let maxF = 0;
+
+  let maxA = 0;
   for (let i = 0; i < n; i++) {
     const xi = pts[i], f = forces[i];
     // project onto tangent plane at xi (a no-op for the spherical branch,
     // whose contributions are already exactly tangential by construction)
     const dot = f[0] * xi[0] + f[1] * xi[1] + f[2] * xi[2];
-    const tx = f[0] - dot * xi[0], ty = f[1] - dot * xi[1], tz = f[2] - dot * xi[2];
+    const tx = (f[0] - dot * xi[0]) * scale, ty = (f[1] - dot * xi[1]) * scale, tz = (f[2] - dot * xi[2]) * scale;
     forces[i] = [tx, ty, tz];
-    const mag = Math.sqrt(tx * tx + ty * ty + tz * tz);
-    if (mag > maxF) maxF = mag;
+    // Magnitude of the *unscaled* accumulator, so both the displayed force
+    // and the dimensionless residual below can be derived exactly without
+    // dividing by p*E (which is itself Infinity at large p).
+    const magA = Math.sqrt((f[0] - dot * xi[0]) ** 2 + (f[1] - dot * xi[1]) ** 2 + (f[2] - dot * xi[2]) ** 2);
+    if (magA > maxA) maxA = magA;
   }
-  state.maxForce = maxF;
+  state.maxForce = maxA * scale;
+  // The scale-free convergence measure: max_i |grad_i Psi|, i.e. the force in
+  // units of p*E. Unlike maxForce it means the same thing at every p, which
+  // matters because the physical force's own scale grows like e^O(p) - at
+  // p=25 a fully converged N=40 configuration still reports maxForce ~1e+3,
+  // so no fixed absolute threshold on it can ever be met there. For p=0
+  // there's no p*E factor to divide out, so the two coincide.
+  state._residual = isLog ? state.maxForce : maxA / accum;
   return forces;
 }
 
@@ -263,14 +408,19 @@ function computeEnergyAndForce() {
 function pairForceMagnitude(i, j) {
   if (state.p === Infinity) return NaN; // Tammes limit - not a Riesz force, see TODO.md
   const xi = state.points[i], xj = state.points[j], p = state.p;
+  let dEff;
   if (state.metric === "spherical") {
     const dot = Math.max(-1, Math.min(1, xi[0] * xj[0] + xi[1] * xj[1] + xi[2] * xj[2]));
-    const thetaEff = Math.max(Math.acos(dot), THETA_MIN);
-    return energyAndMagnitude(thetaEff, p).m;
+    dEff = Math.max(Math.acos(dot), THETA_MIN);
+  } else {
+    const dx = xi[0] - xj[0], dy = xi[1] - xj[1], dz = xi[2] - xj[2];
+    dEff = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), R_MIN);
   }
-  const dx = xi[0] - xj[0], dy = xi[1] - xj[1], dz = xi[2] - xj[2];
-  const rEff = Math.max(Math.sqrt(dx * dx + dy * dy + dz * dz), R_MIN);
-  return energyAndMagnitude(rEff, p).m;
+  if (p <= 1e-9) return 1 / dEff;
+  // Reported in whatever units computeEnergyAndForce last used, so a hovered
+  // edge's Force stays directly comparable with the panel's Max force.
+  if (state._forceUnitsRelative) return Math.pow(dEff / state._dMinEff, -p) / (dEff * state._sumW);
+  return p * Math.pow(dEff, -(p + 1));
 }
 
 function applyDisplacement(basePoints, forces, dt) {
@@ -307,12 +457,52 @@ function applyDisplacement(basePoints, forces, dt) {
 // slower settings had almost no visible effect once trust saturated.
 state._trust = 1.0;
 
+// The quantity the Armijo test below compares. For p>0 this is log E rather
+// than E: the two are monotonically equivalent, but E itself spans 1e0 to
+// well past 1e300 across the p range, so a *relative* tolerance on E is the
+// only kind that means the same thing at every p - and a relative tolerance
+// on E is an absolute one on log E. Comparing E directly is what used to
+// break above p~25: at E~1e13 the old `1e-10 * (1 + |E|)` slack came out to
+// ~1e3, far larger than the real per-step energy change, so every step read
+// as "downhill" regardless of whether it was, and the trust region never
+// found a workable dt (the documented maxForce-stalls-at-1e+3 symptom).
+// p=0's energy is a sum of logs, can be negative, has no log form, and never
+// had the conditioning problem in the first place - so it is compared as-is.
+function armijoObjective() {
+  return state.p > 1e-9 ? state._logEnergy : state.energy;
+}
+
+// Second convergence test, alongside main.js's threshold on maxForce. That
+// threshold is an *absolute* one, so it only works while the force's own
+// scale is O(1) - it is unreachable by construction at large p, where a
+// fully-settled configuration still reports maxForce ~1e+3 and up. Nor can
+// it simply be restated as a threshold on the scale-free residual, because
+// the *achievable* residual floor itself degrades with p (measured: ~1e-9 at
+// p=1, ~1e-8 at p=6, ~2e-6 at p=25), as relative energy differences near the
+// optimum shrink with the stiffening landscape. So detect the honest
+// condition instead: the objective has stopped improving by more than double
+// precision can resolve - the standard `ftol` companion to a `gtol` test.
+// Measured against the best objective seen rather than the previous step's,
+// so the small oscillation a trust region performs around a
+// precision-limited minimum reads as stagnation rather than resetting the
+// count every time it happens to tick downhill.
+const STALL_STEPS = 100;  // consecutive non-improving steps before declaring convergence
+const STALL_REL = 1e-14;  // improvement below this (relative to |objective|) counts as none
+
+function resetConvergenceTracking() {
+  state._stallCount = 0;
+  state._bestObjective = Infinity;
+  state.stalled = false;
+}
+resetConvergenceTracking();
+
 function stepPhysics() {
   const forces = computeEnergyAndForce();
   const n = state.points.length;
   if (n < 2) { state.step++; pushEnergyHistory(); return; }
   const basePoints = state.points;
-  const e0 = state.energy;
+  const usesLog = state.p > 1e-9;
+  const e0 = armijoObjective();
 
   const maxF = Math.max(state.maxForce, 1e-9);
   const dt0 = Math.min(0.02, 0.15 / maxF);
@@ -323,12 +513,12 @@ function stepPhysics() {
   // "energy > e0" test can permanently freeze the trust multiplier near its
   // floor (found by stress-testing the spherical/p=0 landscapes: it stalled
   // at maxForce ~0.1-0.3, never decaying, exactly this failure mode)
-  const tolerance = 1e-10 * (1 + Math.abs(e0));
+  const tolerance = (usesLog ? 1e-11 : 1e-10) * (1 + Math.abs(e0));
 
   state.points = applyDisplacement(basePoints, forces, dt);
   computeEnergyAndForce();
   let tries = 0;
-  while (state.energy > e0 + tolerance && tries < 30) {
+  while (armijoObjective() > e0 + tolerance && tries < 30) {
     dt *= 0.5;
     state.points = applyDisplacement(basePoints, forces, dt);
     computeEnergyAndForce();
@@ -340,6 +530,17 @@ function stepPhysics() {
   } else {
     state._trust = Math.max((dt / dt0) * 0.8, 1e-3);
   }
+
+  const obj = armijoObjective();
+  if (obj < state._bestObjective - STALL_REL * (1 + Math.abs(obj))) {
+    state._bestObjective = obj;
+    state._stallCount = 0;
+  } else {
+    if (obj < state._bestObjective) state._bestObjective = obj;
+    state._stallCount++;
+  }
+  state.stalled = state._stallCount >= STALL_STEPS;
+
   state.step++;
   pushEnergyHistory();
 }

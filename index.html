@@ -31,7 +31,8 @@
 
     <div class="control">
       <label>p (Riesz exponent)<span class="val" id="pVal">1.00</span></label>
-      <input type="range" id="pSlider" min="0" max="70" step="1" value="10">
+      <!-- max is also set from P_VALUES.length at init, so the two can't drift -->
+      <input type="range" id="pSlider" min="0" max="87" step="1" value="10">
     </div>
 
     <div class="control">
@@ -106,8 +107,10 @@
   <div id="statsPanel" class="panel panel-right">
     <div class="section-title">Statistics</div>
     <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
-    <div class="stat">Energy <span class="v" id="energyVal">&mdash;</span></div>
-    <div class="stat">Max force <span class="v" id="forceVal">&mdash;</span></div>
+    <div class="stat" title="The Riesz energy being minimized. Shown as its natural logarithm once the energy itself exceeds what double precision can represent (very large p)."><span id="energyLabel">Energy</span> <span class="v" id="energyVal">&mdash;</span></div>
+    <div class="stat" title="Largest net force on any vertex. Switches to dimensionless relative units above p=64, where the physical force overflows double precision."><span id="forceLabel">Max force</span> <span class="v" id="forceVal">&mdash;</span></div>
+    <div class="stat" title="Scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Unlike max force, this means the same thing at every p.">Residual <span class="v" id="residualVal">&mdash;</span></div>
+    <div class="stat" title="Angular separation of the closest pair. This is the quantity the Tammes problem maximizes, and what p &rarr; &infin; converges toward.">Min separation <span class="v" id="minSepVal">&mdash;</span></div>
 
     <div class="section-title section-title-spaced">Geometry</div>
     <div class="chart-title">Vertices by degree &mdash; click to cycle highlight / hide</div>
@@ -117,7 +120,7 @@
     <div id="faceHistogram" class="degree-histogram"></div>
 
     <div class="section-title section-title-spaced">Graphs</div>
-    <div class="chart-title">Energy vs. step</div>
+    <div class="chart-title" id="energyChartTitle">Energy vs. step</div>
     <canvas id="energyChart" class="chart-canvas"></canvas>
 
     <div class="chart-title chart-title-spaced">Max force vs. step (log)</div>
@@ -161,13 +164,18 @@
           toggle is independent of edge rendering below.
         </p>
         <p>
-          The p slider runs from 0 to 25 on a coarsening scale &mdash; fine enough
+          The p slider runs from 0 to 1000 on a coarsening scale &mdash; fine enough
           near p&asymp;15 to resolve the known triangular-bipyramid&rarr;square-pyramid
-          transition at N=5 &mdash; plus a literal &infin; at the very top for the
-          Tammes problem (maximizing the closest pairwise distance) that the energy
-          sum degenerates into as p grows without bound. The slider stops at 25
-          rather than climbing further because floating-point precision in the
-          force calculation is already becoming unreliable there; &infin; itself
+          transition at N=5, then geometric out to the high exponents &mdash; plus a
+          literal &infin; at the very top for the Tammes problem (maximizing the
+          closest pairwise distance) that the energy sum degenerates into as p grows
+          without bound. High p works because the energy is minimized in log form:
+          each pair's contribution is measured relative to the closest pair's, so
+          nothing overflows however large p gets, and the objective
+          (1/p)&middot;log E tends to &minus;log(min separation) &mdash; i.e. large p
+          already <i>is</i> an approximate Tammes solver, accurate to about
+          log(pairs)/p. At p=1000 the resulting separations sit within 0.03&deg; of
+          the rigorously known optima for N=4&ndash;9, 12 and 24. &infin; itself
           isn't yet wired up to drive the simulation (Play is disabled for it).
         </p>
       </div>

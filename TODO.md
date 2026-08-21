@@ -14,11 +14,11 @@
 
   - **Barnes-Hut spatial tree** for the force/energy sum itself, `O(N log N)`
     per step instead of `O(N²)`. Still generalizes cleanly to arbitrary `p`
-    and both metrics (it just samples `energyAndMagnitude()` at a cluster
+    and both metrics (it just samples the pair kernel at a cluster
     centroid) — unlike FMM, whose `O(N)` bound needs a closed-form multipole
     expansion that doesn't exist for a general non-integer-exponent Riesz
     kernel. Main open question, softer than previously assumed: `stepPhysics()`'s
-    Armijo backtracking currently compares *exact* energy to a `~1e-10`
+    Armijo backtracking currently compares *exact* energy to a `~1e-11`
     tolerance; a Barnes-Hut-approximated energy (typical error `~1e-2`-`1e-3`)
     would swamp that directly. But since both the pre- and post-step energy
     would go through the *same* tree/theta, the bias may largely cancel
@@ -26,48 +26,100 @@
     approximation's own error budget rather than assuming exact energy is
     unavoidable, before falling back to a full exact-energy accept/reject
     pass (which would erase most of the asymptotic win).
+  - **Scope it by `p` first.** The tree is only the right tool for the
+    *long-range* small-`p` regime. At large `p` the log-domain weights
+    underflow to exactly zero beyond `d_min · exp(700/p)`, so a spatial
+    cell-list cutoff there is **exact**, not approximate — no accuracy
+    tradeoff and none of the Armijo-tolerance worry above. Two different
+    accelerations for two regimes, chosen by `p`.
+  - **Measure before building either.** The pair loop still allocates
+    nothing per pair but does run twice (once for the closest pair, once for
+    the sums), and `state.points` is an array-of-arrays rather than a flat
+    `Float64Array`. A monomorphic typed-array kernel may reach `N ≈ 1000`
+    with no tree at all. Note also that the *rendering* side recomputes the
+    `O(N²)` hull (plus face merging) every frame, so it is likely to become
+    the visible bottleneck before the physics does — check which one
+    actually dominates at `N = 500` before optimizing the wrong half.
   - Once it lands, raise the N slider max and pressure-test around the
     reported 500-1000 crossover.
 
-- **p → ∞ (Tammes / max-min distance) limit.** Added the slider position, but
-  deliberately left unimplemented (Play is disabled there) — this is *not* a
-  Riesz-energy limit, so it doesn't fit the current architecture as a drop-in:
-  - `Σ d_ij^-p` has no meaningful pointwise limit as `p → ∞`: for any finite
-    `p` it's still a diverging weighted sum dominated increasingly by the
-    single closest pair, not a differentiable stand-in for "maximize the
-    minimum pairwise distance" (the actual Tammes objective, a nested
-    min-max with no natural gradient). This is also why the *finite* end of
-    the slider is capped at 25 rather than climbing toward Infinity as
-    originally sketched: numerical stability in `computeEnergyAndForce()`
-    was already degrading by p~25 (maxForce stalling around 1e+3, not
-    converging), well before `Math.pow` actually overflows. Fixing that
-    for arbitrarily large finite p would need an arbitrary-precision numeric
-    library (e.g. `ExpantaNum.js`, though that's built for far larger
-    "googological" magnitudes than this actually needs) - not attempted, in
-    favour of capping the range where the existing integrator is reliable
-    and moving straight to the literal ∞ case as its own, differently-posed
-    problem instead.
-  - Most promising path: replace the true `min` over pairs with a smooth
-    **soft-min** (e.g. `-1/β · log Σ exp(-β·d_ij)`), which is differentiable
-    everywhere and converges to the true Tammes objective as `β → ∞`. This
-    reuses the existing sum-based gradient-descent machinery (a different
-    aggregation, not a different per-pair kernel) — but `β` likely needs to
-    be *annealed* upward over the run rather than fixed, since a large fixed
-    `β` would hit the same active-set/ill-conditioning problem already seen
-    at large finite `p`. The Armijo backtracking criterion would also need
-    rethinking, since "energy" here is a surrogate rather than the actual
-    quantity being optimized.
-  - Alternative: a dedicated active-set/local-search solver (repeatedly find
-    the current closest pair(s) and push directly apart) closer to how
-    Tammes solvers in the literature actually work, but a bigger structural
-    departure — probably its own step function rather than a branch inside
-    `stepPhysics()`.
-  - Validate against a reference Tammes table (N=1-14, 24 rigorously
-    known; e.g. N=5 -> 90°, N=7 -> ~77.87°, N=8 -> ~74.86° square antiprism)
-    before trusting any implementation.
+- **p = ∞ (Tammes / max-min distance) limit.** Still the one slider position
+  where Play is disabled, but most of the groundwork is now done and the
+  original framing of this entry turned out to be wrong in an instructive
+  way. It assumed the soft-min `-1/β · log Σ exp(-β·d_ij)` would be a
+  *different objective* bolted alongside the Riesz energy. It isn't: the
+  Riesz energy in log form already is that soft-min, with `β = p`. Since
+  `(Σ d^-p)^(-1/p) → min d` as `p → ∞`, minimizing
+  `Ψ = (1/p)·log E` (what `computeEnergyAndForce()` now actually descends —
+  see "Done") *is* maximizing the minimum separation, to within
+  `log(pairs)/p`. Empirically at `p=1000` that lands within **0.03°** of the
+  rigorously known optima (N=4→109.4712°, 5→90°, 6→90°, 7→77.8695°,
+  8→74.8585°, 9→70.5288°, 12→63.4349°, 24→43.6908°), always erring slightly
+  low, exactly as that error term predicts.
+
+  What's genuinely left is therefore small, and mostly about *presentation*
+  rather than a new solver:
+  - Decide what `p=∞` should *do*, given large finite `p` already does it.
+    Most defensible: anneal `p` upward over the run (the β-annealing this
+    entry originally proposed, which is still the right idea — a huge `p`
+    from a cold random start is needlessly stiff, and `p=1000, N=100` takes
+    ~15k steps) and report min separation rather than energy as the headline
+    number. That keeps one code path for all p.
+  - Alternatively cap the annealing where the softmin's weights underflow
+    (past `d_min · exp(700/p)` a pair's weight is *exactly* zero in double
+    precision, so beyond that point the objective genuinely is a pure
+    active-set method over the closest pairs — the "dedicated active-set
+    solver" alternative arrives on its own, without being written).
+  - Either way `state.energy` is meaningless at `p=∞` (it overflows well
+    before then and the panel already switches to `log E`), so the Energy
+    row should probably read `—` and cede the spotlight to Min separation.
 
 ## Done
 
+- **Raised the p ceiling from 25 to 1000** by minimizing the energy in log
+  form. `computeEnergyAndForce()` no longer sums raw `d^-p` terms; it now
+  makes one cheap pass to find the closest pair (only the largest dot
+  product is needed — it identifies that pair under both metrics) and a
+  second pass accumulating each pair's weight *relative* to that closest
+  pair, `w = (d/d_min)^-p ∈ (0,1]`. The true energy comes back exactly as
+  `sum_w · d_min^-p`, in log form when that overflows. Descending
+  `Ψ = (1/p)·log E` instead of `E` is not a change of physics: `∇Ψ = ∇E/(p·E)`
+  is the same direction field times one positive scalar, which the adaptive
+  `dt` absorbs — verified by regression against pre-change converged
+  energies (7 configurations across p=0/1/6/25, both metrics, agreeing to
+  ~1e-12 relative, step counts within 3%).
+
+  Two distinct bugs were hiding behind the single symptom "p>25 stalls at
+  maxForce ~1e+3", and both had to go:
+  1. **Conditioning.** At `E ~ 1e13` the Armijo test's `1e-10·(1+|E|)` slack
+     came out to `~1e+3`, far larger than a real per-step energy change, so
+     every trial step read as downhill regardless of whether it was. Fixed
+     by comparing `log E` (a relative tolerance on `E` is an absolute one on
+     `log E`, so the test now means the same thing at every p).
+  2. **The convergence criterion was dimensionally wrong.** It tested an
+     absolute threshold (`maxForce ≤ 1e-4`) against a quantity whose own
+     scale grows like `e^O(p)`: at p=25 a *fully converged* N=40
+     configuration still reports `maxForce ~5.6e+3`, so the run could never
+     terminate however settled it was. Instrumenting it showed `log E`
+     reaching its float-precision floor by step 2000 and `dlogE` hitting
+     exactly 0 — it had converged 18000 steps before the loop noticed. Fixed
+     by adding a scale-free `Residual` (`max_i |∇_i Ψ|`, shown in the panel)
+     plus an `ftol`-style stagnation stop: 100 consecutive steps failing to
+     improve on the best objective by more than `1e-14` relative. A
+     scale-free force threshold alone would *not* have worked, because the
+     achievable residual floor itself degrades with p (~1e-9 at p=1, ~1e-8
+     at p=6, ~2e-6 at p=25). p=25/N=40 now converges in ~2800 steps.
+- **Min separation** added to the statistics panel (the closest pair's
+  angular separation), free from the pass above. This is the quantity the
+  Tammes problem maximizes, and the one that makes high p meaningful to look
+  at when the energy has become an unreadable `e+124`. Display degrades
+  gracefully as p climbs: Energy switches to `log Energy` (panel row and
+  chart title) once `E` overflows double precision, and Max force switches
+  to dimensionless relative units above `P_PHYSICAL_MAX = 64`, where the
+  physical force's `p·d_min^-p` factor no longer fits in a double. That
+  threshold is a fixed constant rather than a check on the current `d_min`
+  precisely so the displayed units can't flip back and forth mid-run as a
+  transient near-collision forms and resolves.
 - Log energy (p=0, Fekete points) and geodesic/spherical metric, independently
   toggleable from Euclidean chord distance and from edge rendering.
 - Numerical robustness: floored-magnitude/exact-direction split (no collapse
