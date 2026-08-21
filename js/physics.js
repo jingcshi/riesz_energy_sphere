@@ -122,6 +122,9 @@ function pushEnergyHistory() {
   if (state._energyHistory.length > ENERGY_HISTORY_MAX) {
     state._energyHistory = state._energyHistory.filter((_, idx) => idx % 2 === 0);
   }
+  // chart.js listens for this; it is defined after chart.js loads, so guard
+  // for the brief window during init where it doesn't exist yet.
+  if (typeof markChartsDirty === "function") markChartsDirty();
 }
 
 function randomPointsOnSphere(n, seed) {
@@ -150,6 +153,7 @@ function resetConfiguration() {
     logEnergy: state._logEnergy,
     residual: state._residual,
   }];
+  if (typeof markChartsDirty === "function") markChartsDirty();
 }
 
 // ---------- physics: projected gradient descent on Riesz / log energy ----------

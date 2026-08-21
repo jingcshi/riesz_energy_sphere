@@ -18,7 +18,7 @@
 // source order, and blocking. A script element added from JS wouldn't
 // preserve execution order without extra care, and a stylesheet added that
 // way doesn't block the first paint, so the page would flash unstyled.
-const ASSET_VERSION = "2026-08-21b";
+const ASSET_VERSION = "2026-08-22";
 document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`);
 </script>
 </head>
@@ -155,9 +155,11 @@ document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`
     <div class="section-title section-title-spaced">Graphs</div>
     <div class="chart-title" id="energyChartTitle">Energy vs. step</div>
     <canvas id="energyChart" class="chart-canvas"></canvas>
+    <canvas id="energyWindow" class="chart-window"></canvas>
 
     <div class="chart-title chart-title-spaced" title="Charted instead of max force because it is comparable across p, where max force is not; see the info window.">Residual vs. step (log)</div>
     <canvas id="residualChart" class="chart-canvas"></canvas>
+    <canvas id="residualWindow" class="chart-window"></canvas>
 
     <div class="credit">
       Jingchuan Shi + Claude
