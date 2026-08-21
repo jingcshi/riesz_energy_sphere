@@ -283,12 +283,14 @@ function draw() {
       ctx.moveTo(path[0].x, path[0].y);
       for (let k = 1; k < path.length; k++) ctx.lineTo(path[k].x, path[k].y);
       ctx.closePath();
-      // Depth-fade toward the background, same idea as the vertex tension
-      // colouring: a rear face reads as "further away" rather than
-      // competing on equal footing with whatever's in front of it.
+      // Depth-fade toward fully transparent, same idea as the vertex
+      // tension colouring: a rear face reads as "further away" rather than
+      // competing on equal footing with whatever's in front of it. At full
+      // sphere opacity (depthWithOpacity(0) = 0) a directly-rear face is
+      // completely invisible, not just dimmed - "opaque" should mean the
+      // sphere genuinely blocks it, not merely fades it.
       const depth = depthWithOpacity(Math.max(0, Math.min(1, (avgZ + 1) / 2)));
-      const fadeAlpha = 0.35 + depth * 0.65;
-      ctx.globalAlpha = fadeAlpha;
+      ctx.globalAlpha = depth;
       ctx.fillStyle = faceFillColor(sides);
       ctx.fill();
       ctx.strokeStyle = faceStrokeColor(sides);
@@ -356,6 +358,10 @@ function draw() {
     const gC = bg[1] + (tension[1] - bg[1]) * depth;
     const bC = bg[2] + (tension[2] - bg[2]) * depth;
 
+    // Same full-block-at-full-opacity contract as faces/edges: at
+    // depth=0 (depthWithOpacity(0)=0 when sphereOpacity=1) the vertex is
+    // completely invisible, not merely small and dim.
+    ctx.globalAlpha = depth;
     ctx.beginPath();
     ctx.arc(pt.x, pt.y, radius, 0, 2 * Math.PI);
     ctx.fillStyle = `rgb(${rC}, ${gC}, ${bC})`;
@@ -375,6 +381,7 @@ function draw() {
       ctx.lineWidth = 2;
       ctx.stroke();
     }
+    ctx.globalAlpha = 1;
   }
 
   drawHoverHighlight(projected, edgePaths, facePaths);

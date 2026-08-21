@@ -74,12 +74,6 @@
       </div>
     </div>
 
-    <div class="control" title="How much rear vertices/edges/faces fade and shrink relative to front ones - transparent shows everything equally, opaque favours a clearer front view">
-      <label>Sphere opacity<span class="val" id="opacityVal">100%</span></label>
-      <input type="range" id="opacitySlider" min="0" max="100" step="5" value="100">
-      <div class="ticks"><span>Transparent</span><span>Opaque</span></div>
-    </div>
-
     <div class="row">
       <button class="primary state-play" id="playBtn">Play</button>
       <button class="reset" id="resetBtn">Reset</button>
@@ -88,9 +82,23 @@
 
   <div id="canvasWrap">
     <canvas id="scene"></canvas>
-    <div id="zoomControl" class="zoom-control">
-      <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
-      <span class="zoom-label" id="zoomVal">100%</span>
+    <div id="canvasControls" class="canvas-controls">
+      <div class="canvas-control-row" title="Zoom - scales the view about its centre only, no panning">
+        <svg class="canvas-control-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6.5"></circle>
+          <line x1="15.3" y1="15.3" x2="21" y2="21"></line>
+        </svg>
+        <input type="range" id="zoomSlider" min="25" max="400" step="5" value="100">
+        <span class="canvas-control-label" id="zoomVal">100%</span>
+      </div>
+      <div class="canvas-control-row" title="Sphere opacity - how much rear vertices/edges/faces fade and shrink relative to front ones. Transparent (0%) shows everything equally; opaque (100%) fully blocks directly-rear elements">
+        <svg class="canvas-control-icon" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="12" height="12" rx="1.5"></rect>
+          <rect x="9" y="9" width="12" height="12" rx="1.5"></rect>
+        </svg>
+        <input type="range" id="opacitySlider" min="0" max="100" step="5" value="65">
+        <span class="canvas-control-label" id="opacityVal">65%</span>
+      </div>
     </div>
     <div id="hoverTooltip" class="hover-tooltip hidden"></div>
   </div>

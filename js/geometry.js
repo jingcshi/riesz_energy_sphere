@@ -50,12 +50,13 @@ function project(pt, cx, cy, scale) {
 // every depth-fade/blend formula in render.js/edges.js, this remaps the raw
 // depth (0=back..1=front) each of them already takes as input, and every
 // downstream alpha/colour/radius formula keeps working unmodified. At
-// opacity=1 it's the identity (today's fixed look: full front-to-back
-// fade/blend). At opacity=0 it always returns 1 ("as if front"), so every
-// element renders at full clarity/size regardless of true depth - nothing
-// is lost, but front/back layering becomes illegible. Intermediate values
-// interpolate between "opaque sphere blocking the far side" and "fully
-// transparent, see straight through".
+// opacity=1 it's the identity (depth passes through unchanged), and every
+// element's own alpha formula is zero-floored at depth=0, so a directly-
+// rear element is genuinely invisible - "opaque" means the sphere actually
+// blocks the far side, not just fades it. At opacity=0 it always returns 1
+// ("as if front"), so every element renders at full clarity/size regardless
+// of true depth - nothing is lost, but front/back layering becomes
+// illegible. Intermediate values interpolate between those extremes.
 function depthWithOpacity(rawDepth) {
   const op = state.sphereOpacity;
   return 1 - op * (1 - rawDepth);

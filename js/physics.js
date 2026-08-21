@@ -15,7 +15,12 @@ const state = {
   maxForce: 0,
   viewMatrix: matMultiply(rotationY(0.5), rotationX(-0.3)), // initial orientation, matches old rotX=-0.3/rotY=0.5
   zoom: 1.0, // origin-centered scale multiplier, no translation
-  sphereOpacity: 1.0, // 0 (fully transparent - front/back equally clear) .. 1 (today's full depth fade - see geometry.js's depthWithOpacity)
+  // 0 (fully transparent - front/back equally clear) .. 1 (fully opaque -
+  // directly-rear elements completely invisible). Default 0.65 reproduces
+  // the original (pre-slider) fixed face fade exactly, as the closest
+  // single-knob match across faces/edges/vertices - see geometry.js's
+  // depthWithOpacity.
+  sphereOpacity: 0.65,
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
   _energyHistory: [],
   highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
