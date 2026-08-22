@@ -92,6 +92,122 @@
 
 ## Done
 
+- **Energy chart no longer breaks when the objective changes under it.** Reported
+  as "N=1024, p=3, spherical, GD: the energy plot fails to render and the
+  y-labels read Infinity, until the energy drops to ~3e6". The `p=3` energies are
+  entirely finite (5.9e8 falling to 3.2e6 over 400 steps), so the exponent in the
+  report was a red herring — the cause was the **previous** run at `p=1000`,
+  where `logE ≈ 6500` puts `Math.exp` far past its 709 ceiling and every history
+  entry stores `energy: Infinity`. Changing `p` reset the trust region and the
+  convergence tracking but never `_energyHistory`, so those entries stayed in the
+  window. `useLog` was then decided from the *newest* point alone, which now read
+  finite, so the linear branch was chosen over a window containing Infinity:
+  `maxV` became infinite, so did the 8% margin, both bounds went to ±Infinity,
+  every `yOf` became `NaN` (nothing drawn) and both labels printed the string
+  "Infinity". The "~3e6" threshold was just the trailing 1000-step window finally
+  sliding past the stale points. Three fixes:
+  - `resetEnergyHistory()`, called on a change of `p` or metric as well as from
+    `resetConfiguration`. Correctness rather than tidiness: `E` is a different
+    function at every `p`, so a curve spanning a change of `p` plots two
+    incomparable quantities on one axis.
+  - `useLog` now scans the whole visible window instead of its last point. The
+    same straddle happens **within** a single run around `p ≈ 250`, where energy
+    starts as Infinity and later drops below 1e308 — that instance was live and
+    unreported.
+  - `renderChart` tolerates non-finite values generally: they are excluded from
+    the min/max scan, the polyline lifts the pen across them rather than drawing
+    to `NaN` (which silently aborts the whole path), and a window with nothing
+    representable draws the frame with an em-dash label. This caught two further
+    latent cases — `p=0` stores `logEnergy` as `NaN`, which produced `"NaN"`
+    labels, and the residual chart's log axis emitted non-finite coordinates on
+    `NaN` residuals.
+
+  `test/chart_render.js` covers all four situations through a recording canvas
+  stub, asserting that no label ever reads Infinity/NaN and no draw command
+  receives a non-finite coordinate. Confirmed to fail against the pre-fix
+  `chart.js` with exactly the reported `["Infinity","-Infinity"]`.
+
+- **Riemannian L-BFGS, as a second optimizer alongside gradient descent.** The
+  step-count lever, which nothing before this had touched: every prior
+  optimisation attacked the cost of a step, while plain projected descent with
+  Armijo backtracking set how many steps were needed. Selected from a new
+  **Methodology** section in the left panel (between Parameters and Animation),
+  which is also where the Barnes-Hut choice above will live — its "Force
+  evaluation" row already exists with Pairwise active and Barnes-Hut present but
+  inert.
+
+  Measured on `test/optimizer_bench.js`, counting `computeEnergyAndForce` calls
+  (the only cost that matters, since the two-loop recursion is `O(m·N)` against
+  `O(N²)` for one evaluation — the method is free per iteration):
+
+  | case | GD evals | L-BFGS evals | ratio |
+  |---|---|---|---|
+  | N=24 p=1 euclidean | 444 | 122 | 3.6× |
+  | N=64 p=1 euclidean | 2770 | 325 | 8.5× |
+  | N=128 p=1 euclidean | 9167 | 348 | **26.3×** |
+  | N=64 p=0 euclidean | 1011 | 281 | 3.6× |
+  | N=64 p=6 euclidean | 6589 | 374 | 17.6× |
+  | N=64 p=25 euclidean | 8385 | 869 | 9.7× |
+  | N=64 p=100 euclidean | 10129 | 875 | 11.6× |
+  | N=64 p=1 spherical | 20487 | 7660 | 2.7× |
+  | N=32 p=2 spherical | 563 | 714 | 0.79× |
+
+  The win grows with N, which is the right direction — it is the stiffening
+  landscape that L-BFGS deflates. The one loss is a small spherical case where
+  there was little conditioning to exploit and the line search still pays a
+  backtrack or two.
+
+  The extreme corner is the real headline: **N=1024, p=1000 converges in 10109
+  steps and 20700 evaluations**, where gradient descent would not converge in a
+  day. That combination stacks everything hostile at once — the stiffest
+  landscape on the p scale, the largest N, and `E` overflowing double precision
+  (`logE ≈ 6500`) so the whole run lives in the log-domain reformulation.
+
+  Three things this needed beyond the textbook recipe:
+  - **A vector transport.** The curvature pairs `(s_j, y_j)` are tangent vectors
+    formed at different iterates, and `T_{x_j}M ≠ T_{x_k}M` as subspaces of
+    `R^3N`, so they are unusable as stored. Transport by projection,
+    `T_{x→z}(v) = P_z(v)`, is valid on the sphere and costs one dot product per
+    point (Ring & Wirth 2012; Huang, Gallivan & Absil 2015). The retraction
+    needed nothing new — `normalize(x+v)` is what `applyDisplacement` already
+    did.
+  - **A consistent objective gradient**, `state._objForce`. This was the real
+    prerequisite and the easiest thing to get silently wrong. `state._forces`
+    switches meaning at `P_PHYSICAL_MAX`: `-∇E` below, `-∇Ψ` above. Harmless for
+    descent, which uses only the direction — fatal for L-BFGS, whose pairs are
+    gradient *differences*, so a configuration-dependent factor `λ = p·E` would
+    make `y_k` track the variation in `λ` rather than `Hess·s_k`, with a
+    discontinuity at `p=64`. `test/gradient_check.js` verifies both halves: that
+    `_objForce` is exactly `_forces` times the predicted scalar (`1`, `1/E` or
+    `p`) to machine precision across 39 cases, and that it matches a
+    central-difference directional derivative along the retraction.
+  - **Restart on stagnation, not just a stall counter.** An ill-conditioned `H`
+    gives a direction that is long and nearly orthogonal to the gradient; the
+    arc cap then clamps the step, the objective moves by less than `STALL_REL`,
+    and the shared stall test declares convergence at a non-critical point.
+    Discarding the memory restores a guaranteed-downhill direction. Bounded by
+    `LBFGS_MAX_RESTARTS` so a genuine precision floor still terminates.
+
+  Two findings worth keeping, both of which look like bugs and are not:
+  - The two optimizers **routinely settle in different local minima**, either
+    way round. Inherent to a landscape with exponentially many minima —
+    trajectories diverge within a handful of steps — and exactly why the
+    Thomson literature wraps a local minimizer in basin hopping. A single run of
+    either finds *a* minimum, not *the* one. The bench therefore asserts
+    evaluation count and monotone decrease, and only sanity-bounds the objective
+    gap.
+  - On the spherical metric the **residual is not comparable between them** near
+    an antipodally-symmetric optimum. At N=64, p=1 descent lands with 32 pairs
+    inside `SIN_ZERO`, whose `1/sin θ` contributions are zeroed, reading
+    `1.5e-7`; L-BFGS stops at gap `1.05e-6`, just outside, retaining them in
+    full and reading `5.0e-5`. The objectives agree to `~1e-5`. That is the
+    documented `SIN_ZERO` behaviour, not a difference in convergence quality.
+
+  Deliberately not done: momentum/Nesterov. It is the cheaper win *and* keeps
+  the physical reading (it is literally a heavy ball with friction), so it
+  remains worth having as a third option — L-BFGS's `d = -H·g` is not a force
+  field, which is why this is a mode rather than a replacement.
+
 - **N now reaches 1024**, on a slider whose stops widen with N — unit steps to
   64, then the step doubles at each power of two (2 to 128, 4 to 256, 8 to 512,
   16 to 1024), 192 stops in all, indexed exactly the way the p slider indexes

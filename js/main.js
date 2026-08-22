@@ -83,6 +83,9 @@ const edgeVisButtons = document.querySelectorAll("#edgeVisSegmented .seg");
 const faceVisButtons = document.querySelectorAll("#faceVisSegmented .seg");
 const shapeButtons = document.querySelectorAll("#shapeSegmented .seg");
 const metricButtons = document.querySelectorAll("#metricSegmented .seg");
+const methodButtons = document.querySelectorAll("#methodSegmented .seg");
+const forceModeButtons = document.querySelectorAll("#forceModeSegmented .seg");
+const evalVal = document.getElementById("evalVal");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomVal = document.getElementById("zoomVal");
 const opacitySlider = document.getElementById("opacitySlider");
@@ -133,6 +136,7 @@ pSlider.addEventListener("input", () => {
   resetConvergenceTracking(); // ...and the objective it was being compared against
   updatePInfinityUI();
   computeEnergyAndForce();
+  resetEnergyHistory(); // E at the old p is a different quantity - see physics.js
 });
 seedInput.addEventListener("change", () => {
   state.seed = parseInt(seedInput.value, 10) || 0;
@@ -177,6 +181,33 @@ metricButtons.forEach((btn) => {
     state._trust = 1.0; // landscape stiffness changed with metric - retune step size
     resetConvergenceTracking();
     computeEnergyAndForce();
+    resetEnergyHistory(); // chord vs geodesic energies aren't the same quantity
+  });
+});
+methodButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    methodButtons.forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.method = btn.dataset.method;
+    // Switching optimizer mid-run is legitimate - both descend the same
+    // objective from the same point - but neither one's accumulated step-size
+    // state means anything to the other, so clear both. `stalled` in
+    // particular must go: gradient descent may have given up at a precision
+    // floor that L-BFGS can still push past, and without this the tick loop
+    // would refuse to take a single step after the switch.
+    state._trust = 1.0;
+    lbfgsReset();
+    state._stallCount = 0;
+    state._bestObjective = Infinity;
+    state.stalled = false;
+  });
+});
+forceModeButtons.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (btn.classList.contains("disabled")) return; // Barnes-Hut not implemented
+    forceModeButtons.forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.forceMode = btn.dataset.forceMode;
   });
 });
 zoomSlider.addEventListener("input", () => {
@@ -382,6 +413,7 @@ function tick() {
   }
   draw();
   stepVal.textContent = state.step;
+  evalVal.textContent = state._evals;
   // Energy is shown in log form once it overflows double precision, which it
   // does past roughly p=250 - the log is the quantity the integrator actually
   // compares anyway (see physics.js), so nothing is lost but the label.

@@ -303,6 +303,11 @@ code {
 .seg:hover {
   background: #30363d;
 }
+/* Placeholder options (e.g. Barnes-Hut) keep the dimming from button.disabled
+   but must not light up on hover, which would read as clickable. */
+.seg.disabled:hover {
+  background: #21262d;
+}
 .seg.active {
   background: var(--accent-dim);
   color: white;

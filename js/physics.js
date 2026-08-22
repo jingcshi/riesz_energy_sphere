@@ -10,6 +10,16 @@ const state = {
   seed: 1,
   speed: 1.0,
   metric: "euclidean", // "euclidean" | "spherical"
+  // Which optimizer drives stepPhysics. "gd" is projected gradient descent
+  // with Armijo backtracking - a discretization of overdamped gradient flow,
+  // so its trajectory reads as physics. "lbfgs" is Riemannian L-BFGS, which
+  // converges in far fewer iterations but whose direction is not a force
+  // field (see the L-BFGS block below), so its frames are optimizer iterates
+  // rather than states of a relaxing system.
+  method: "gd",       // "gd" | "lbfgs"
+  // Reserved for the Barnes-Hut item in TODO.md. Only "pairwise" is
+  // implemented; the UI's second option is present but inert.
+  forceMode: "pairwise", // "pairwise" | "barneshut"
   edgesVisible: "hide",  // "hide" | "show" - master on/off for the edge layer, mirroring facesVisible
   // "chords" | "arcs" - how both edges *and* faces are drawn, independent of
   // `metric` and of either layer's visibility: straight chords with flat
@@ -32,6 +42,11 @@ const state = {
   // overwritten at init, from the slider.
   sphereOpacity: 0.65,
   _stepAccum: 0, // fractional physics-steps-per-frame carried by the speed slider
+  // Count of computeEnergyAndForce calls since the last configuration reset.
+  // The honest cross-method cost measure: one gradient-descent step costs 1-2
+  // of these, one L-BFGS step costs 1 plus however many the line search
+  // backtracks, so "Steps" alone can't be compared between the two.
+  _evals: 0,
   _energyHistory: [],
   highlightedDegrees: new Set(), // degree values currently ring-highlighted on the canvas
   hiddenDegrees: new Set(),      // degree values currently hidden from rendering (display-only, doesn't touch the simulation)
@@ -146,14 +161,29 @@ function resetConfiguration() {
   state._trust = 1.0; // fresh landscape (new N/seed) - don't carry over step-size tuning
   resetConvergenceTracking();
   state._stepAccum = 0;
+  state._evals = 0;
   computeEnergyAndForce(); // populate initial stats
+  resetEnergyHistory();
+}
+
+// Start the energy/residual curves over from the current configuration.
+//
+// Called on a change of N or seed (via resetConfiguration, where step is 0) and
+// on a change of p or metric (where the run continues, so the curve restarts at
+// whatever step it has reached). The latter matters for correctness, not tidiness:
+// E is a different function at every p, so a curve spanning a change of p plots
+// two incomparable quantities on one axis - and concretely, at N=1024 the p=1000
+// energy is Infinity (logE ~ 6500, far past exp's 709 ceiling), so retaining
+// those points after switching to a small p left the chart with an infinite
+// y-range that rendered nothing at all.
+function resetEnergyHistory() {
   state._energyHistory = [{
-    step: 0,
+    step: state.step,
     energy: state.energy,
     logEnergy: state._logEnergy,
     residual: state._residual,
   }];
-  if (typeof markChartsDirty === "function") markChartsDirty();
+  if (typeof markChartsDirty === "function") markChartsDirty(true);
 }
 
 // ---------- physics: projected gradient descent on Riesz / log energy ----------
@@ -480,6 +510,7 @@ function computeEnergyAndForce() {
     state._logEnergy = NaN;
     state._minSeparation = NaN;
     state._forces = pts.map(() => [0, 0, 0]);
+    state._objForce = pts.map(() => [0, 0, 0]);
     state._pointEnergy = new Array(n).fill(NaN);
     state._forceUnitsRelative = false;
     state._energyRelative = false;
@@ -489,18 +520,22 @@ function computeEnergyAndForce() {
     return state._forces;
   }
 
+  state._evals++;
+
   const p = state.p;
   const isLog = p <= 1e-9; // p=0: logarithmic (Fekete) energy, not a power law
   const spherical = state.metric === "spherical";
   const forces = new Array(n);
+  const objForce = new Array(n);
   const pointEnergy = new Array(n).fill(0); // per-vertex potential energy, for the hover info panel
 
   if (n < 2) {
-    for (let i = 0; i < n; i++) forces[i] = [0, 0, 0];
+    for (let i = 0; i < n; i++) { forces[i] = [0, 0, 0]; objForce[i] = [0, 0, 0]; }
     state.energy = 0;
     state._logEnergy = -Infinity;
     state._minSeparation = NaN;
     state._forces = forces;
+    state._objForce = objForce;
     state._pointEnergy = pointEnergy;
     state._forceUnitsRelative = false;
     state._energyRelative = false;
@@ -629,6 +664,24 @@ function computeEnergyAndForce() {
     const pointScale = state._energyRelative ? 1 / accum : Math.exp(-p * logDMin);
     for (let i = 0; i < n; i++) pe[i] *= pointScale;
   }
+  // ---- the optimizer's own gradient ----
+  // `scale` above chooses *display* units, and deliberately switches meaning
+  // at P_PHYSICAL_MAX: below it state._forces is -grad E (physical), above it
+  // -grad Psi (normalized). For gradient descent that is harmless, because
+  // the two differ by the positive scalar p*E and steepest descent only ever
+  // uses the direction (see the note above). L-BFGS cannot tolerate it: its
+  // curvature pairs are gradient *differences*, so feeding it lambda(x)*grad
+  // with lambda = p*E varying over orders of magnitude as the configuration
+  // relaxes would make y_k track the variation in lambda rather than
+  // Hess*s_k, and the scaling would jump discontinuously at p=64.
+  // So carry a second array holding -grad of exactly the function
+  // armijoObjective() returns, under one scaling at every p:
+  //   p>0: objective log E,  -grad = p * A / sumW
+  //   p=0: objective E,      -grad = A
+  // Both are finite for any representable configuration - `accum` is the
+  // relative sum, O(pairs), so nothing here can overflow the way p*dMin^-p
+  // does.
+  const objScale = isLog ? 1 : p / accum;
   for (let i = 0; i < n; i++) pointEnergy[i] = pe[i];
   state._dMinEff = dMinEff; // consumed by pairForceMagnitude's relative branch
   state._sumW = accum;
@@ -639,6 +692,7 @@ function computeEnergyAndForce() {
   // out to 1/(p*E) in the physical branch and exactly 1 in the relative one.
   state._residualScale = isLog ? 1 : 1 / (scale * accum);
   state._forces = forces;
+  state._objForce = objForce;
   state._pointEnergy = pointEnergy;
 
   let maxA = 0;
@@ -651,6 +705,7 @@ function computeEnergyAndForce() {
     const dot = f0 * x0 + f1 * x1 + f2 * x2;
     const ax = f0 - dot * x0, ay = f1 - dot * x1, az = f2 - dot * x2;
     forces[i] = [ax * scale, ay * scale, az * scale];
+    objForce[i] = [ax * objScale, ay * objScale, az * objScale];
     // Magnitude of the *unscaled* accumulator, so both the displayed force
     // and the dimensionless residual below can be derived exactly without
     // dividing by p*E (which is itself Infinity at large p).
@@ -759,6 +814,11 @@ function resetConvergenceTracking() {
   state._stallCount = 0;
   state._bestObjective = Infinity;
   state.stalled = false;
+  // The curvature memory approximates the Hessian of one specific objective on
+  // one specific landscape. Every caller of this function has just changed N,
+  // p, the metric or the seed, so the stored pairs now describe a function
+  // that no longer exists and must not seed the next run's model.
+  lbfgsReset();
   // Peak residual for the current landscape, i.e. the most tension the
   // system has held since the last change of N/seed/p/metric. The vertex
   // colouring measures against this (see render.js) so that "red" means
@@ -768,7 +828,395 @@ function resetConvergenceTracking() {
 }
 resetConvergenceTracking();
 
+// ---------- Riemannian L-BFGS ----------
+//
+// The configuration space is the product manifold M = (S^2)^N, embedded in
+// R^3N, of dimension 2N. Gradient descent needs only the tangent projection
+// and the retraction, both of which already exist above. L-BFGS additionally
+// needs a *vector transport*, because its memory of curvature is a set of
+// pairs (s_j, y_j) of tangent vectors, and each was formed in the tangent
+// space of a different iterate. T_{x_j}M and T_{x_k}M are different subspaces
+// of R^3N, so the stored vectors are not usable as-is. Two facts make this
+// cheap on a sphere:
+//
+//   * Transport by projection, T_{x->z}(v) = P_z(v), is a valid vector
+//     transport and Riemannian L-BFGS convergence theory covers it (Ring &
+//     Wirth 2012; Huang, Gallivan & Absil 2015). It is not parallel
+//     transport - inner products are not exactly preserved - but it costs one
+//     dot product per point instead of a rotation.
+//   * The retraction R_x(v)_i = (x_i+v_i)/|x_i+v_i| is the same radial
+//     normalization applyDisplacement already performs, so the line search
+//     needs no new machinery.
+//
+// Cost: memory is 6*m*N doubles (2 MB at N=1024, m=10); the two-loop
+// recursion is O(m*N) ~ 1e4 flops against O(N^2) ~ 1e6 for one force
+// evaluation. The method is therefore free per iteration and the whole
+// question is whether it cuts the iteration count - which is why it is worth
+// having at all, given that plain descent needs ~1.8e4 steps at N=1024.
+//
+// What it is NOT: a force field. d = -H*g mixes information across every
+// particle and the last m iterations, so an individual point can move against
+// its own local force when the curvature model says the coupled system
+// descends faster that way. The iterates are not samples of any continuous
+// flow. That is why this is a mode rather than a replacement - see the UI's
+// Methodology section.
+//
+// Two consequences worth knowing before comparing the two optimizers, both
+// verified in test/optimizer_bench.js:
+//
+//   * They routinely settle into *different* local minima, sometimes better
+//     and sometimes worse. That is inherent to a non-convex landscape with
+//     exponentially many minima - the trajectories diverge within a handful of
+//     steps - and is exactly why the Thomson-problem literature wraps a local
+//     minimizer like this one in basin hopping rather than trusting one
+//     descent. A single run of either method finds *a* minimum, not *the* one.
+//   * On the spherical metric the reported residual is not directly comparable
+//     between them near an antipodally-symmetric optimum. Measured at N=64,
+//     p=1: gradient descent lands with 32 pairs inside the SIN_ZERO cutoff, so
+//     those pairs' 1/sin(theta) contributions are zeroed out and the residual
+//     reads 1.5e-7; L-BFGS stops with its closest pair at 1.05e-6, just
+//     *outside* the cutoff, so the same contributions are retained in full and
+//     the residual reads 5.0e-5. The two configurations agree to ~1e-5 in the
+//     objective. This is the documented SIN_ZERO behaviour rather than a
+//     difference in convergence quality.
+const LBFGS_M = 10;        // pairs of curvature memory
+const LBFGS_C1 = 1e-4;     // Armijo sufficient-decrease coefficient
+// Cautious update: skip a pair unless <y,s> is positive by a comfortable
+// margin relative to <s,s>. Riesz energy is strongly non-convex - the whole
+// Thomson-problem literature is about its multitude of minima and saddles -
+// so <y,s> <= 0 genuinely happens when a step crosses a ridge or passes a
+// saddle, and admitting such a pair destroys the positive-definiteness that
+// makes -H*g a descent direction at all.
+const LBFGS_CAUTIOUS = 1e-8;
+// Cap on how far any single point may be displaced in one iteration, in units
+// of the sphere's radius. L-BFGS steps are longer and less local than
+// gradient steps, and E -> Infinity as two points collide, so an unconstrained
+// Newton-length step can land in the singular region where the quadratic
+// model is meaningless. The Armijo loop would reject it, but each rejection
+// costs a full O(N^2) evaluation; capping up front is cheaper than
+// backtracking into range.
+const LBFGS_MAX_ARC = 0.25;
+// Consecutive iterations whose line search cannot find any decrease before
+// declaring the run converged. Distinct from the STALL_STEPS test below: that
+// one counts iterations that *ran* without improving, which at ~30
+// backtracking evaluations each would waste thousands of O(N^2) evaluations
+// before tripping. A line search that fails outright is a much sharper signal
+// that the objective has hit its precision floor.
+const LBFGS_MAX_LS_FAILURES = 3;
+// Consecutive non-improving iterations after which the curvature memory is
+// thrown away and the next step is plain steepest descent.
+//
+// This exists because stagnation and convergence are different things, and the
+// stall test cannot tell them apart. An ill-conditioned H produces a direction
+// that is both very long and nearly orthogonal to the gradient; LBFGS_MAX_ARC
+// then clamps the step to a tiny multiple of it, the objective improves by
+// less than STALL_REL, and after STALL_STEPS iterations the run is declared
+// converged at a point that is nowhere near critical. Observed on the
+// spherical metric at N=64, p=1: it stopped with maxForce 0.087 (against
+// 2.4e-4 for gradient descent) on a measurably worse objective. Discarding the
+// memory restores a guaranteed-downhill direction and lets it recover.
+const LBFGS_RESTART_STALL = 20;
+// Cap on restarts without any intervening improvement, so a configuration
+// genuinely at its precision floor still converges instead of restarting
+// forever.
+const LBFGS_MAX_RESTARTS = 3;
+
+function lbfgsReset() {
+  state._lbfgsS = [];          // curvature memory, oldest first
+  state._lbfgsY = [];
+  state._lbfgsPendStep = null; // t*d from the previous iteration, in its tangent space
+  state._lbfgsPendGrad = null; // gradient at the previous iterate
+  state._lbfgsScratch = null;
+  state._lbfgsLsFailures = 0;
+  state._lbfgsSkipped = 0;     // cautious-update rejections, for diagnostics
+  state._lbfgsLastT = 0;       // last accepted step length; warm-starts the line search
+  state._lbfgsRestarts = 0;    // consecutive memory discards without improvement
+}
+
+// Discard the curvature memory. The next direction will be steepest descent,
+// which is always downhill, and the model rebuilds from there.
+function lbfgsForget() {
+  state._lbfgsS.length = 0;
+  state._lbfgsY.length = 0;
+  state._lbfgsPendStep = null;
+  state._lbfgsPendGrad = null;
+}
+lbfgsReset();
+
+// Flat-vector helpers. The optimizer works in flat Float64Arrays of length 3n
+// rather than the array-of-triples the rest of the module uses: the two-loop
+// recursion is all dot products and axpys over the whole configuration at
+// once, which is exactly what a flat buffer is for.
+function lbfgsScratch(n) {
+  const len = 3 * n;
+  let sc = state._lbfgsScratch;
+  if (!sc || sc.len !== len) {
+    sc = {
+      len,
+      g: new Float64Array(len),
+      q: new Float64Array(len),
+      d: new Float64Array(len),
+      sHat: [], yHat: [],
+      sy: new Float64Array(LBFGS_M),
+      alpha: new Float64Array(LBFGS_M),
+      usable: new Int32Array(LBFGS_M),
+      tmp: new Float64Array(len),
+    };
+    for (let j = 0; j < LBFGS_M; j++) {
+      sc.sHat.push(new Float64Array(len));
+      sc.yHat.push(new Float64Array(len));
+    }
+    state._lbfgsScratch = sc;
+  }
+  return sc;
+}
+
+function flatDot(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+
+// out <- P_x(v), the tangential projection at each point independently
+function flatProjectTangent(v, pts, out) {
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const i3 = 3 * i, xi = pts[i];
+    const x0 = xi[0], x1 = xi[1], x2 = xi[2];
+    const d = v[i3] * x0 + v[i3 + 1] * x1 + v[i3 + 2] * x2;
+    out[i3] = v[i3] - d * x0;
+    out[i3 + 1] = v[i3 + 1] - d * x1;
+    out[i3 + 2] = v[i3 + 2] - d * x2;
+  }
+  return out;
+}
+
+// The largest per-point displacement in a flat tangent vector, which is what
+// LBFGS_MAX_ARC bounds (the arc a point travels is ~|v_i| for small |v_i|).
+function flatMaxPointNorm(v, n) {
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    const i3 = 3 * i;
+    const q = v[i3] * v[i3] + v[i3 + 1] * v[i3 + 1] + v[i3 + 2] * v[i3 + 2];
+    if (q > m) m = q;
+  }
+  return Math.sqrt(m);
+}
+
+// Retract along a flat tangent direction: x_i <- (x_i + t*d_i)/|x_i + t*d_i|.
+// Same map as applyDisplacement, differing only in the input layout.
+function lbfgsRetract(basePoints, d, t) {
+  const n = basePoints.length;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const i3 = 3 * i, xi = basePoints[i];
+    const nx = xi[0] + t * d[i3], ny = xi[1] + t * d[i3 + 1], nz = xi[2] + t * d[i3 + 2];
+    const norm = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+    out[i] = [nx / norm, ny / norm, nz / norm];
+  }
+  return out;
+}
+
+function lbfgsPushPair(sVec, yVec) {
+  const S = state._lbfgsS, Y = state._lbfgsY;
+  let sBuf, yBuf;
+  // Reuse the evicted buffers instead of allocating: at 60 iterations/second
+  // and N=1024 a fresh pair would be 48 KB of garbage per step.
+  if (S.length >= LBFGS_M) { sBuf = S.shift(); yBuf = Y.shift(); }
+  if (!sBuf || sBuf.length !== sVec.length) {
+    sBuf = new Float64Array(sVec.length);
+    yBuf = new Float64Array(yVec.length);
+  }
+  sBuf.set(sVec); yBuf.set(yVec);
+  S.push(sBuf); Y.push(yBuf);
+}
+
+// Two-loop recursion. Writes H*g into sc.q, where H is the implicit L-BFGS
+// approximation to the inverse Hessian built from the stored pairs, all
+// transported into the tangent space at `pts` first. Pairs whose transported
+// <y,s> is not positive are skipped for this iteration rather than discarded:
+// the projection changes the inner product slightly, so a pair that was
+// admissible when stored can fail here and become admissible again later.
+function lbfgsInverseHessianTimes(g, pts, sc) {
+  const S = state._lbfgsS, Y = state._lbfgsY;
+  const m = S.length;
+  let used = 0;
+  for (let j = 0; j < m; j++) {
+    flatProjectTangent(S[j], pts, sc.sHat[j]);
+    flatProjectTangent(Y[j], pts, sc.yHat[j]);
+    const sy = flatDot(sc.sHat[j], sc.yHat[j]);
+    sc.sy[j] = sy;
+    if (sy > 0) sc.usable[used++] = j;
+  }
+
+  const q = sc.q;
+  q.set(g);
+  // first loop, newest pair to oldest
+  for (let k = used - 1; k >= 0; k--) {
+    const j = sc.usable[k];
+    const a = flatDot(sc.sHat[j], q) / sc.sy[j];
+    sc.alpha[j] = a;
+    const yh = sc.yHat[j];
+    for (let i = 0; i < q.length; i++) q[i] -= a * yh[i];
+  }
+  // Initial inverse-Hessian scaling from the newest usable pair. Without this
+  // the first iterations are badly scaled; it is the principled version of
+  // what state._trust does by hand for gradient descent.
+  let gamma = 1;
+  if (used > 0) {
+    const j = sc.usable[used - 1];
+    const yy = flatDot(sc.yHat[j], sc.yHat[j]);
+    if (yy > 0) gamma = sc.sy[j] / yy;
+  }
+  if (gamma !== 1) for (let i = 0; i < q.length; i++) q[i] *= gamma;
+  // second loop, oldest pair to newest
+  for (let k = 0; k < used; k++) {
+    const j = sc.usable[k];
+    const b = flatDot(sc.yHat[j], q) / sc.sy[j];
+    const sh = sc.sHat[j], coeff = sc.alpha[j] - b;
+    for (let i = 0; i < q.length; i++) q[i] += coeff * sh[i];
+  }
+  return q;
+}
+
+function stepLBFGS() {
+  computeEnergyAndForce();
+  const n = state.points.length;
+  if (n < 2) { state.step++; pushEnergyHistory(); return; }
+
+  const basePoints = state.points;
+  const sc = lbfgsScratch(n);
+  const g = sc.g;
+  // g <- grad of armijoObjective(). state._objForce is its negation, already
+  // tangential and consistently scaled at every p.
+  const of = state._objForce;
+  for (let i = 0; i < n; i++) {
+    const i3 = 3 * i, f = of[i];
+    g[i3] = -f[0]; g[i3 + 1] = -f[1]; g[i3 + 2] = -f[2];
+  }
+
+  // Form the curvature pair for the step taken last iteration, now that the
+  // gradient at its endpoint is known. Both vectors are transported into the
+  // current tangent space before being compared.
+  //   s_k = P_x(t*d),   y_k = g_k - P_x(g_{k-1})
+  if (state._lbfgsPendStep && state._lbfgsPendGrad) {
+    const s = flatProjectTangent(state._lbfgsPendStep, basePoints, sc.tmp);
+    const ss = flatDot(s, s);
+    // yHat[0] is free scratch here: lbfgsInverseHessianTimes has not run yet
+    // this iteration and will overwrite it before use.
+    const yPrev = flatProjectTangent(state._lbfgsPendGrad, basePoints, sc.yHat[0]);
+    for (let i = 0; i < yPrev.length; i++) yPrev[i] = g[i] - yPrev[i];
+    const sy = flatDot(s, yPrev);
+    if (sy > LBFGS_CAUTIOUS * ss) lbfgsPushPair(s, yPrev);
+    else state._lbfgsSkipped++;
+  }
+
+  let d = sc.d;
+  const q = lbfgsInverseHessianTimes(g, basePoints, sc);
+  for (let i = 0; i < d.length; i++) d[i] = -q[i];
+  let gd = flatDot(g, d);
+  // A non-descent direction means the curvature memory has gone bad (it can,
+  // on a non-convex landscape, despite the cautious filter). Drop it and take
+  // a steepest-descent step, which is always downhill.
+  if (!(gd < 0)) {
+    lbfgsForget();
+    for (let i = 0; i < d.length; i++) d[i] = -g[i];
+    gd = -flatDot(g, g);
+  }
+  if (!(gd < 0)) { // gradient is numerically zero: nothing to do
+    state.step++;
+    pushEnergyHistory();
+    return;
+  }
+
+  // Line search. The natural start is t=1 - d is an approximate Newton step,
+  // so its magnitude is already right. Feeding it through gradient descent's
+  // dt0 = min(0.02, 0.15/maxForce) would shrink a well-scaled Newton step back
+  // to gradient-descent length and discard the entire benefit.
+  //
+  // But starting at 1 unconditionally is wasteful when the accepted step is
+  // habitually much smaller: every iteration then re-pays the same three or
+  // four backtracks, each a full O(N^2) evaluation. Measured on the spherical
+  // metric at N=32, p=2: ~3.95 evaluations per iteration, enough to make
+  // L-BFGS lose to gradient descent on total cost despite needing fewer
+  // iterations. Warm-starting from twice the last accepted length keeps the
+  // usual case at one or two evaluations while still letting t climb back to 1
+  // within a few iterations once the landscape allows it.
+  let t = state._lbfgsLastT > 0 ? Math.min(1, 2 * state._lbfgsLastT) : 1;
+  const dmax = flatMaxPointNorm(d, n);
+  if (dmax * t > LBFGS_MAX_ARC) t = LBFGS_MAX_ARC / dmax;
+
+  const phi0 = armijoObjective();
+  const usesLog = state.p > 1e-9;
+  // Same roundoff slack as gradient descent's Armijo test, and for the same
+  // reason: without it, float noise in the energy sum reads as an uphill step
+  // once t gets small.
+  const tolerance = (usesLog ? 1e-11 : 1e-10) * (1 + Math.abs(phi0));
+
+  let tries = 0;
+  state.points = lbfgsRetract(basePoints, d, t);
+  computeEnergyAndForce();
+  // Sufficient decrease, not merely "went downhill". For d = -g any decrease
+  // suffices, which is why gradient descent above can test the weaker
+  // condition, but quasi-Newton pair quality depends on the line search
+  // actually landing in the Armijo region.
+  while (armijoObjective() > phi0 + LBFGS_C1 * t * gd + tolerance && tries < 30) {
+    t *= 0.5;
+    state.points = lbfgsRetract(basePoints, d, t);
+    computeEnergyAndForce();
+    tries++;
+  }
+
+  if (tries >= 30 && armijoObjective() > phi0 + tolerance) {
+    // No decrease anywhere along d. Revert rather than accept an uphill point,
+    // and forget the curvature memory in case it caused the bad direction.
+    state.points = basePoints;
+    computeEnergyAndForce();
+    lbfgsForget();
+    state._lbfgsLastT = 0; // next attempt starts from t=1 again
+    state._lbfgsLsFailures++;
+  } else {
+    state._lbfgsLsFailures = 0;
+    state._lbfgsLastT = t;
+    // Stash this step and the gradient it started from; the pair is formed at
+    // the top of the next iteration, once the new gradient exists.
+    if (!state._lbfgsPendStep || state._lbfgsPendStep.length !== d.length) {
+      state._lbfgsPendStep = new Float64Array(d.length);
+      state._lbfgsPendGrad = new Float64Array(d.length);
+    }
+    for (let i = 0; i < d.length; i++) state._lbfgsPendStep[i] = t * d[i];
+    state._lbfgsPendGrad.set(g);
+  }
+
+  if (state._residual > state._residualPeak) state._residualPeak = state._residual;
+  trackConvergence();
+
+  // Stagnation is not the same as arrival. If the objective has stopped moving
+  // while the memory still holds pairs, suspect the model rather than the
+  // configuration: discard it, clear the stall so the restarted model gets a
+  // fair run, and try again from steepest descent. Bounded by
+  // LBFGS_MAX_RESTARTS so a configuration truly at its floor still converges.
+  if (state._stallCount === 0) {
+    state._lbfgsRestarts = 0; // genuine improvement this iteration
+  } else if (state._stallCount >= LBFGS_RESTART_STALL
+             && state._lbfgsRestarts < LBFGS_MAX_RESTARTS
+             && state._lbfgsS.length > 0) {
+    lbfgsForget();
+    state._lbfgsRestarts++;
+    state._stallCount = 0;
+    state.stalled = false;
+  }
+
+  state.step++;
+  pushEnergyHistory();
+}
+
 function stepPhysics() {
+  if (state.method === "lbfgs") { stepLBFGS(); return; }
+  stepGradientDescent();
+}
+
+function stepGradientDescent() {
   const forces = computeEnergyAndForce();
   const n = state.points.length;
   if (n < 2) { state.step++; pushEnergyHistory(); return; }
@@ -808,7 +1256,14 @@ function stepPhysics() {
   // collision's residual would dwarf anything real - inflating the peak
   // permanently and washing the vertex colouring pale for the rest of the run.
   if (state._residual > state._residualPeak) state._residualPeak = state._residual;
+  trackConvergence();
+  state.step++;
+  pushEnergyHistory();
+}
 
+// Shared by both optimizers: has the objective stopped improving by more than
+// double precision can resolve?
+function trackConvergence() {
   const obj = armijoObjective();
   if (obj < state._bestObjective - STALL_REL * (1 + Math.abs(obj))) {
     state._bestObjective = obj;
@@ -817,8 +1272,6 @@ function stepPhysics() {
     if (obj < state._bestObjective) state._bestObjective = obj;
     state._stallCount++;
   }
-  state.stalled = state._stallCount >= STALL_STEPS;
-
-  state.step++;
-  pushEnergyHistory();
+  state.stalled = state._stallCount >= STALL_STEPS
+    || state._lbfgsLsFailures >= LBFGS_MAX_LS_FAILURES;
 }

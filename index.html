@@ -18,7 +18,7 @@
 // source order, and blocking. A script element added from JS wouldn't
 // preserve execution order without extra care, and a stylesheet added that
 // way doesn't block the first paint, so the page would flash unstyled.
-const ASSET_VERSION = "2026-08-22";
+const ASSET_VERSION = "2026-08-22f";
 document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`);
 </script>
 </head>
@@ -67,6 +67,23 @@ document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`
       <div class="seed-row">
         <input type="number" id="seedInput" value="1" step="1">
         <button id="randomizeSeedBtn" type="button">Randomize</button>
+      </div>
+    </div>
+
+    <div class="section-title section-title-spaced">Methodology</div>
+    <div class="control" title="Gradient descent is a discretization of overdamped gradient flow: every point moves along its own force, so the trajectory is a physically meaningful relaxation. L-BFGS builds a running approximation to the inverse Hessian and takes approximate Newton steps, reaching the same minimum in far fewer iterations &mdash; but its direction is not a force field, so a point can move against its own force and the intermediate frames are optimizer iterates rather than states of a relaxing system.">
+      <label>Optimizer</label>
+      <div class="segmented" id="methodSegmented">
+        <button class="seg active" data-method="gd">Gradient descent</button>
+        <button class="seg" data-method="lbfgs">L-BFGS</button>
+      </div>
+    </div>
+
+    <div class="control" title="How the O(N&sup2;) pair sum is evaluated. Barnes-Hut tree approximation is not implemented yet &mdash; see TODO.md.">
+      <label>Force evaluation</label>
+      <div class="segmented" id="forceModeSegmented">
+        <button class="seg active" data-force-mode="pairwise">Pairwise</button>
+        <button class="seg disabled" data-force-mode="barneshut">Barnes-Hut</button>
       </div>
     </div>
 
@@ -132,7 +149,8 @@ document.write(`<link rel="stylesheet" href="css/style.css?v=${ASSET_VERSION}">`
 
   <div id="statsPanel" class="panel panel-right">
     <div class="section-title">Statistics</div>
-    <div class="stat">Steps <span class="v" id="stepVal">0</span></div>
+    <div class="stat" title="Optimizer iterations. Not comparable between optimizers &mdash; one L-BFGS iteration does far more work, and far more progress, than one gradient-descent step. Compare Evaluations instead.">Steps <span class="v" id="stepVal">0</span></div>
+    <div class="stat" title="Energy/force evaluations since the last reset &mdash; each is one O(N&sup2;) pair sum, and the dominant cost. This is the measure that means the same thing under both optimizers.">Evaluations <span class="v" id="evalVal">0</span></div>
     <div class="stat" title="The Riesz energy being minimized, shown as its logarithm once it outgrows double precision."><span id="energyLabel">Energy</span> <span class="v" id="energyVal">&mdash;</span></div>
     <div class="stat" title="Largest net force on any vertex. Not comparable between different p; see the info window."><span id="forceLabel">Max force</span> <span class="v" id="forceVal">&mdash;</span></div>
     <div class="stat" title="Scale-free convergence measure: the largest per-vertex gradient of (1/p)&middot;log E. Means the same thing at every p.">Residual <span class="v" id="residualVal">&mdash;</span></div>
