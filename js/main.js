@@ -135,7 +135,7 @@ pSlider.addEventListener("input", () => {
   state._trust = 1.0; // landscape stiffness changed with p - retune step size
   resetConvergenceTracking(); // ...and the objective it was being compared against
   updatePInfinityUI();
-  computeEnergyAndForce();
+  refreshEnergyAndForce(); // not optimizer work, so not counted - see physics.js
   resetEnergyHistory(); // E at the old p is a different quantity - see physics.js
 });
 seedInput.addEventListener("change", () => {
@@ -180,7 +180,7 @@ metricButtons.forEach((btn) => {
     state.metric = btn.dataset.metric;
     state._trust = 1.0; // landscape stiffness changed with metric - retune step size
     resetConvergenceTracking();
-    computeEnergyAndForce();
+    refreshEnergyAndForce(); // not optimizer work, so not counted - see physics.js
     resetEnergyHistory(); // chord vs geodesic energies aren't the same quantity
   });
 });

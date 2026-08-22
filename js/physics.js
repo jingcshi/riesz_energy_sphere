@@ -162,8 +162,24 @@ function resetConfiguration() {
   resetConvergenceTracking();
   state._stepAccum = 0;
   state._evals = 0;
-  computeEnergyAndForce(); // populate initial stats
+  refreshEnergyAndForce(); // populate initial stats
   resetEnergyHistory();
+}
+
+// Recompute the panel's numbers after something changed the objective without
+// the optimizer advancing - a new p, a new metric, a fresh configuration.
+//
+// Free on the Evaluations counter, deliberately. That counter exists to compare
+// what the two optimizers cost, and dragging the p slider is not optimizer work:
+// counted, the number would climb while the simulation sat paused, and idle
+// fiddling before a run would inflate whatever it was later read as. Restoring
+// the previous value rather than decrementing keeps that true however many
+// passes computeEnergyAndForce internally makes.
+function refreshEnergyAndForce() {
+  const evals = state._evals;
+  const forces = computeEnergyAndForce();
+  state._evals = evals;
+  return forces;
 }
 
 // Start the energy/residual curves over from the current configuration.

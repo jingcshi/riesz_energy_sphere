@@ -433,10 +433,14 @@ function draw() {
   //     would put chi above 2 and read as broken topology on a surface that
   //     is in fact perfectly closed.
   //   - an accepted edge running *through* a merged face (a quadrilateral
-  //     whose diagonal was short enough to survive the ratio test). Rare -
-  //     one edge, in a handful of pre-convergence configurations across a
-  //     493-case sweep - and excluded here, being drawn but not an edge of
-  //     the surface.
+  //     whose diagonal was short enough to survive the ratio test). Excluded
+  //     here, being drawn but not an edge of the surface. Hovering one reports
+  //     a dash for its dihedral, which is the honest answer: the two triangles
+  //     it separates are why the face merged in the first place. Not rare at
+  //     large N, whatever the 493-case sweep at N<=100 suggested - 68 of them
+  //     at N=1000 on a random configuration, still 33 after 200 steps - which
+  //     is the same local flatness that makes the merge itself so common
+  //     there (see faces.js).
   // Sweeping N=1..100 x 5 relaxation stages x every degree-hiding subset,
   // chi came out 2 for all 493 cases with at least 4 visible points; below
   // that there's no hull and so no closed surface to have a chi of 2. That
