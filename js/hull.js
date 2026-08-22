@@ -13,11 +13,14 @@
 // are done against the full current face list each insertion (~O(N) faces
 // x O(N) insertions = O(N^2)) rather than a full conflict-graph
 // implementation, which would bring it down to the textbook O(N log N)
-// expected time - a reasonable further step if N grows into the many
-// hundreds (see TODO.md), but not needed at current problem sizes, and this
-// is already a large win over the O(N^2) *distance matrix* it replaces
-// (dot products instead of sqrt'd distances, and only a small per-vertex
-// neighbour set to post-filter instead of all N-1 others).
+// expected time. That is deliberately not the plan: the configuration moves
+// only slightly per step, so the previous frame's triangulation is almost
+// correct and repairing it by edge flips is roughly O(N) amortized, which
+// beats any from-scratch rebuild however good its complexity (see TODO.md).
+// Either way this is already a large win over the O(N^2) *distance matrix*
+// it replaces (dot products instead of sqrt'd distances, and only a small
+// per-vertex neighbour set to post-filter instead of all N-1 others), and
+// the memo below means a paused configuration pays nothing at all.
 const HULL_EPS = 1e-9;
 
 function vSub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
