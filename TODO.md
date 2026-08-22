@@ -92,6 +92,55 @@
 
 ## Done
 
+- **The face merge no longer swallows a vertex, which is what put χ above 2 at
+  large N.** Reported as "s=933924, N≥992, the initial configuration reports χ=4,
+  even after the filtered edges". Exact thresholds for that seed: χ=3 from N=981,
+  χ=4 from N=993, so the slider stops at 992 and 1008 read 3 and 4.
+
+  The hull is not at fault. Audited over N=984..1024 it is a clean closed
+  triangulation every time — every point a vertex, every directed edge owned
+  exactly once with its reverse present, every facet plane supporting the whole
+  set to 5.6e-17, V−E+F=2. The fault is entirely in the face layer, and χ−2 turns
+  out to equal, exactly, the number of *orphan* vertices: points that appear on no
+  face boundary at all. Vertex 547 is the first, vertex 667 the second.
+
+  The mechanism. Vertex 547 has degree 4, and each adjacent pair in its fan is
+  within the 1.8° tolerance, so union-find merges all four triangles into one
+  group. The traced boundary is the rim quadrilateral, and 547 — sitting 3.8e-4
+  off that quadrilateral's plane — ends up strictly *inside* the merged face. It
+  then belongs to no cell of the tiling: it contributes no boundary edge and no
+  face, while `V` still counts it. A wheel of k triangles merging to one face
+  drops F by k−1 and E by the k spokes, so each swallowed vertex raises χ by
+  exactly +1. The filtered-edge count cannot absorb this, since it corrects a
+  disagreement over *edges* and this is a vertex with no edges to disagree about.
+
+  Why it appears only at large N, and why the merge is always wrong here. The
+  sphere is locally flat, so the median dihedral defect between adjacent hull
+  triangles on a random configuration falls from 16.9° at N=64 to 4.0° at N=1000,
+  and the share of adjacent pairs inside the tolerance rises from 5% to 23%.
+  Merging at N in the hundreds is routine and frequently accidental. The comment
+  in faces.js asserting that "nothing merges" pre-convergence was written at small
+  N and is corrected. That a group with an interior vertex is *always* an artifact
+  is a fact about the sphere rather than a tolerance argument: coplanar points on
+  a sphere are cocircular, the face's plane meets the sphere in exactly that
+  circle, and a point strictly inside the polygon would be strictly inside the
+  circle, hence strictly inside the sphere — which no point here can be. So a
+  genuine flat face has no interior vertex at any N or p, and `swallowsVertex`
+  rejects such a group outright, reusing the untraceable-boundary fallback that
+  emits its triangles unmerged. The cost is negligible: at N=1000 it unmerges two
+  groups of a handful of triangles each out of ~1300 faces, and the renderer does
+  not draw 3-sided groups by default anyway.
+
+  `test/topology.js` replaces the ad-hoc probes and carries both layers'
+  invariants — hull manifoldness and V−E+F=2, then the face layer counted exactly
+  as render.js counts it — over the reported range, six seeds × twelve N, relaxed
+  configurations at four step counts, and every degree-hiding subset that
+  render.js retriangulates. It asserts the orphan *list* is empty rather than just
+  χ=2, so a future regression names the vertex. Confirmed to fail against the
+  pre-fix `faces.js` with exactly the reported counts. The 493-case sweep quoted
+  in render.js stopped at N=100, an order of magnitude short of where this
+  appears, which is why it was missed.
+
 - **Energy chart no longer breaks when the objective changes under it.** Reported
   as "N=1024, p=3, spherical, GD: the energy plot fails to render and the
   y-labels read Infinity, until the energy drops to ~3e6". The `p=3` energies are

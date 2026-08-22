@@ -15,10 +15,16 @@
 // simple polygon - there's no bowtie/self-intersection case to design
 // around, just float-precision robustness (see the fallback in trace()).
 //
-// Early in a simulation, dihedral angles between adjacent triangles are
-// generically far from 0 degrees, so nothing merges and every triangle
-// surfaces as its own 3-sided group - the "messy everything-else" case
-// upfront is simply the generic case, requiring no special-casing here.
+// Early in a simulation at small N, dihedral angles between adjacent
+// triangles are generically far from 0 degrees, so little merges and most
+// triangles surface as their own 3-sided group - the "messy everything-else"
+// case upfront is simply the generic case, requiring no special-casing here.
+// That stops being true as N grows, because the sphere is locally flat: the
+// median dihedral defect between adjacent hull triangles on a random
+// configuration falls from 16.9 degrees at N=64 to 4.0 at N=1000, and the
+// share of adjacent pairs inside the tolerance rises from 5% to 23%. Merging
+// at N in the hundreds is therefore routine and often accidental rather than
+// a real flat face, which is what swallowsVertex below has to guard against.
 // (Rendering additionally chooses not to draw 3-sided groups by default,
 // see render.js/main.js, so that generic triangle soup stays invisible
 // until the user explicitly asks to see it.)
@@ -79,6 +85,43 @@ function traceBoundary(triIdxs, tris, owner) {
   return loop;
 }
 
+// Does this group absorb every triangle around some vertex, leaving that
+// vertex strictly inside the merged polygon rather than on its boundary?
+//
+// Such a group is always an artifact of FACE_COPLANAR_DOT, never a real face,
+// and the reason is a fact about the sphere rather than a tolerance argument.
+// Coplanar points on a sphere are cocircular: the face's plane meets the
+// sphere in one circle, and every vertex of a genuine flat face lies on it.
+// A point strictly inside that polygon would be strictly inside the circle,
+// hence strictly inside the sphere - which no point here can be. So a real
+// flat face has no interior vertex, at any N and any p, and a group with one
+// is reporting flatness the configuration does not have.
+//
+// Left in, the vertex belongs to no cell of the tiling at all: it contributes
+// no boundary edge and no face, yet V still counts it, so each one raises the
+// reported chi by exactly 1. That is what the Geometry table's chi=4 at
+// N>=993 was - two swallowed vertices, not a hole in the surface. The
+// filtered-edge count cannot absorb it, since it corrects a disagreement over
+// *edges* and this is a vertex with no edges to disagree about.
+//
+// Rejecting the whole group, rather than splitting the smallest piece off it,
+// matches the untraceable-boundary fallback below and costs almost nothing:
+// the groups this catches are tiny near-flat fans (the first one, at N=1000,
+// is four triangles around a degree-4 vertex sitting 3.8e-4 off their plane),
+// and unmerging leaves them as triangles among the ~1300 the tiling already
+// has, which the renderer does not draw by default anyway.
+function swallowsVertex(triIdxs, tris, incident) {
+  const seen = new Map();
+  for (const t of triIdxs) {
+    for (const v of tris[t]) {
+      const k = (seen.get(v) || 0) + 1;
+      if (k === incident.get(v)) return true;
+      seen.set(v, k);
+    }
+  }
+  return false;
+}
+
 // Core face-merging computation, factored out of computeFaces() so it can
 // also run on an arbitrary subset of points, mirroring
 // computeEdgesForPoints's role for the "non-local edges" feature.
@@ -121,6 +164,12 @@ function computeFacesForPoints(pts) {
     groups.get(r).push(t);
   }
 
+  // How many hull triangles each vertex belongs to, i.e. its degree. Compared
+  // below against how many of them a single group has absorbed.
+  const incident = new Map();
+  for (const [a, b, c] of tris)
+    for (const v of [a, b, c]) incident.set(v, (incident.get(v) || 0) + 1);
+
   // Area isn't carried on the face: it depends on the Shape control, which
   // can change without the tiling changing, and only the one face under the
   // cursor is ever asked for it. See faceArea below.
@@ -128,6 +177,10 @@ function computeFacesForPoints(pts) {
   for (const triIdxs of groups.values()) {
     if (triIdxs.length === 1) {
       faces.push({ vertices: tris[triIdxs[0]].slice(), sides: 3 });
+      continue;
+    }
+    if (swallowsVertex(triIdxs, tris, incident)) {
+      for (const t of triIdxs) faces.push({ vertices: tris[t].slice(), sides: 3 });
       continue;
     }
     const loop = traceBoundary(triIdxs, tris, owner);

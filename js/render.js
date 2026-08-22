@@ -439,7 +439,10 @@ function draw() {
   //     the surface.
   // Sweeping N=1..100 x 5 relaxation stages x every degree-hiding subset,
   // chi came out 2 for all 493 cases with at least 4 visible points; below
-  // that there's no hull and so no closed surface to have a chi of 2.
+  // that there's no hull and so no closed surface to have a chi of 2. That
+  // sweep stopped an order of magnitude short of where the face merge first
+  // breaks, though - see swallowsVertex in faces.js, and test/topology.js,
+  // which carries the same invariant out to N=1024.
   let tilingEdges = 0, filteredEdges = 0;
   const boundarySeen = new Set();
   for (const face of faceCandidates) {
